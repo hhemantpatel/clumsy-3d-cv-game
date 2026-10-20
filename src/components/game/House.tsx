@@ -190,7 +190,7 @@ export const House: React.FC = () => {
           </mesh>
           <mesh>
             <planeGeometry args={[0.02, 1.46]} />
-            <meshPhysicalMaterial color="#bae6fd" transmission={0.75} roughness={0.08} ior={1.5} />
+            <meshStandardMaterial color="#bae6fd" transparent opacity={0.35} roughness={0.1} metalness={0.1} />
           </mesh>
           <mesh position={[0, -0.84, 0]} castShadow>
             <boxGeometry args={[0.42, 0.08, 3.0]} />
@@ -218,7 +218,7 @@ export const House: React.FC = () => {
           </mesh>
           <mesh>
             <planeGeometry args={[0.02, 1.46]} />
-            <meshPhysicalMaterial color="#bae6fd" transmission={0.75} roughness={0.08} ior={1.5} />
+            <meshStandardMaterial color="#bae6fd" transparent opacity={0.35} roughness={0.1} metalness={0.1} />
           </mesh>
           <mesh position={[0, -0.84, 0]} castShadow>
             <boxGeometry args={[0.42, 0.08, 3.0]} />
@@ -265,7 +265,7 @@ export const House: React.FC = () => {
           </mesh>
           <mesh position={[0, 0, 0.04]}>
             <planeGeometry args={[2.2, 1.2]} />
-            <meshPhysicalMaterial color="#bae6fd" transmission={0.7} roughness={0.08} />
+            <meshStandardMaterial color="#bae6fd" transparent opacity={0.35} roughness={0.1} metalness={0.1} />
           </mesh>
           {/* Flower Box */}
           <group position={[0, -0.85, 0.16]}>
@@ -305,7 +305,7 @@ export const House: React.FC = () => {
           </mesh>
           <mesh position={[0, 0, 0.04]}>
             <planeGeometry args={[2.2, 1.2]} />
-            <meshPhysicalMaterial color="#bae6fd" transmission={0.7} roughness={0.08} />
+            <meshStandardMaterial color="#bae6fd" transparent opacity={0.35} roughness={0.1} metalness={0.1} />
           </mesh>
           {/* Flower Box */}
           <group position={[0, -0.85, 0.16]}>
@@ -331,8 +331,10 @@ export const House: React.FC = () => {
         <RoundedBox args={[2.2, 0.9, 0.34]} radius={0.03} smoothness={3} position={[0, 3.15, -1.5]} castShadow>
           <meshStandardMaterial color="#1e293b" roughness={0.5} />
         </RoundedBox>
+      </group>
 
-        {/* 4. Welcoming Covered Front Entry Porch */}
+      {/* 4. Welcoming Covered Front Entry Porch (Preserved solid during LOS fade) */}
+      <group position={[0, 0, 0]}>
         {/* Porch Stone Landing Deck */}
         <RoundedBox args={[3.6, 0.18, 1.8]} radius={0.04} smoothness={4} position={[0, 0.09, -0.6]} receiveShadow>
           <meshStandardMaterial color="#64748b" roughness={0.8} metalness={0.05} />
@@ -363,7 +365,7 @@ export const House: React.FC = () => {
 
         {/* Warm Glowing Entrance Porch Lantern */}
         <group position={[0, 2.6, 0.1]}>
-          <pointLight color="#fde047" intensity={1.5} distance={6} decay={2} castShadow />
+          <pointLight color="#fde047" intensity={1.5} distance={6} decay={2} />
           {/* Lantern Bracket */}
           <mesh position={[0, 0.18, 0]}>
             <cylinderGeometry args={[0.03, 0.03, 0.2, 8]} />
@@ -478,7 +480,7 @@ export const House: React.FC = () => {
       {/* 6. Warm Interior Ambient Architectural Lights */}
       {/* Studio Desk Warm Pendant Lamp */}
       <group position={[-2.5, 3.2, -6.0]}>
-        <pointLight color="#fde047" intensity={1.4} distance={9} decay={2} castShadow />
+        <pointLight color="#fde047" intensity={1.4} distance={9} decay={2} />
         <mesh position={[0, 0.15, 0]}>
           <cylinderGeometry args={[0.25, 0.48, 0.35, 24]} />
           <meshStandardMaterial color="#1e293b" roughness={0.3} metalness={0.7} />

@@ -20,10 +20,10 @@ const Crop3D: React.FC<{ tile: FarmTile; x: number; z: number }> = ({ tile, x, z
   const { crop, growth, watered } = tile;
 
   return (
-    <group position={[x, 0.12, z]}>
+    <group position={[x, 0.082, z]}>
       {/* Damp watered soil disc patch */}
       {watered && (
-        <mesh position={[0, -0.07, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh position={[0, 0.003, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <circleGeometry args={[0.26, 12]} />
           <meshStandardMaterial color="#1e110a" roughness={0.3} metalness={0.1} />
         </mesh>
@@ -31,7 +31,7 @@ const Crop3D: React.FC<{ tile: FarmTile; x: number; z: number }> = ({ tile, x, z
 
       {/* Empty tilled plot furrow indicator (small dibble indent) */}
       {crop === 'none' && (
-        <mesh position={[0, -0.06, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh position={[0, 0.004, 0]} rotation={[-Math.PI / 2, 0, 0]}>
           <circleGeometry args={[0.07, 8]} />
           <meshStandardMaterial color="#22120b" roughness={0.9} />
         </mesh>

@@ -95,6 +95,20 @@ export const cvData: CVData = {
   ],
   projects: [
     {
+      id: "clumsy-3d-cv-game",
+      title: "Clumsy 3D CV Game",
+      tagline: "Interactive 3D Portfolio Engine with Compiled Rust WASM Physics & In-Engine Farming Game",
+      description: "Architected a high-performance interactive 3D WebGL portfolio combining a custom Rust physics engine compiled to WebAssembly with Three.js rendering, Web Audio synthesis, and an in-engine Python automaton harvest puzzle.",
+      tags: ["Rust", "WebAssembly", "Three.js", "React", "TypeScript", "Tailwind CSS"],
+      featured: true,
+      githubUrl: "https://github.com/hhemantpatel/clumsy-3d-cv-game",
+      highlights: [
+        "Zero-allocation compiled Rust WASM physics engine simulating character kinematics, stumble physics, and circle-to-AABB collisions",
+        "Declarative Three.js / React Three Fiber WebGL scene with procedural cottage, foliage, and dynamic lighting",
+        "In-engine Automaton Garden mini-game with sandboxed Python compiler, reactive drone lerp, and Web Audio synthesizers"
+      ]
+    },
+    {
       id: "alpha-chess-zero",
       title: "Alpha-Chess-Zero",
       tagline: "AlphaZero-style Reinforcement Learning Chess Engine with MCTS & Live GUI",

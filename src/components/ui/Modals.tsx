@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
+import confetti from 'canvas-confetti';
 import { useGame } from '../../context/GameContext';
-import { cvData, Project } from '../../data/cvData';
+import { cvData } from '../../data/cvData';
 import {
   X,
   ExternalLink,
@@ -33,15 +34,7 @@ import {
   Milestone,
   Navigation,
   Route,
-  Play,
-  Square,
-  RotateCcw,
-  Terminal,
-  Droplets,
-  Bot,
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
-import { soundManager } from '../../utils/audio';
 import { AutomatonGardenWindow } from './AutomatonGardenWindow';
 
 export const Modals: React.FC = () => {
@@ -55,12 +48,12 @@ export const Modals: React.FC = () => {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-stone-950/70 backdrop-blur-sm animate-in fade-in duration-200 select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-stone-950/70 backdrop-blur-sm animate-in fade-in duration-200 select-none overflow-y-auto">
       {/* Click outside to close backdrop */}
-      <div className="absolute inset-0" onClick={closeModal} />
+      <div className="fixed inset-0" onClick={closeModal} />
 
       {/* Render dedicated game artifact layout for each active modal */}
-      <div className="relative z-10 w-full flex items-center justify-center">
+      <div className="relative z-10 w-full flex items-center justify-center my-auto">
         {activeModal === 'contact' && <ContactPostcardModal onClose={closeModal} />}
         {activeModal === 'projects' && <ProjectsBinderModal onClose={closeModal} />}
         {activeModal === 'skills' && <SkillsGrimoireModal onClose={closeModal} />}
@@ -80,10 +73,14 @@ export const Modals: React.FC = () => {
 const ContactPostcardModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [copied, setCopied] = useState(false);
 
-  const handleCopyEmail = () => {
-    navigator.clipboard.writeText(cvData.email);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyEmail = async () => {
+    try {
+      await navigator.clipboard.writeText(cvData.email);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   };
 
   return (
@@ -308,18 +305,41 @@ const ProjectsBinderModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
 
   const tabs = [
     { key: 'all', label: 'All Builds' },
-    { key: 'PyTorch', label: 'AI & ML' },
-    { key: 'Rust', label: 'Rust WASM' },
-    { key: 'Computer Vision', label: 'Vision' },
-    { key: 'Chemistry', label: 'Chemistry' },
+    { key: 'AI', label: 'AI & ML' },
+    { key: 'Rust', label: 'Rust & Systems' },
+    { key: 'Vision', label: 'Computer Vision' },
+    { key: 'Chemistry', label: 'Chemistry & Sci' },
   ];
 
   const filteredProjects =
     filter === 'all'
       ? cvData.projects
-      : cvData.projects.filter((p) => p.tags.some((t) => t.toLowerCase() === filter.toLowerCase()));
+      : cvData.projects.filter((p) => {
+          if (filter === 'Rust') return p.tags.some((t) => ['Rust', 'WebAssembly', 'Three.js'].includes(t));
+          if (filter === 'AI') return p.tags.some((t) => ['PyTorch', 'Reinforcement Learning', 'scikit-learn', 'LSTM', 'ANFIS'].includes(t));
+          if (filter === 'Vision') return p.tags.some((t) => ['Computer Vision', 'YOLOv8', 'OpenCV', 'EasyOCR'].includes(t));
+          if (filter === 'Chemistry') return p.tags.some((t) => ['Chemistry', 'Process Modelling', 'Molecular Dynamics'].includes(t));
+          return p.tags.some((t) => t.toLowerCase() === filter.toLowerCase());
+        });
 
-  const activeProject = cvData.projects.find((p) => p.id === selectedId) || filteredProjects[0] || cvData.projects[0];
+  const activeProject = filteredProjects.find((p) => p.id === selectedId) || filteredProjects[0] || cvData.projects[0];
+
+  const handleSelectTab = (key: string) => {
+    setFilter(key);
+    const nextFiltered =
+      key === 'all'
+        ? cvData.projects
+        : cvData.projects.filter((p) => {
+            if (key === 'Rust') return p.tags.some((t) => ['Rust', 'WebAssembly', 'Three.js'].includes(t));
+            if (key === 'AI') return p.tags.some((t) => ['PyTorch', 'Reinforcement Learning', 'scikit-learn', 'LSTM', 'ANFIS'].includes(t));
+            if (key === 'Vision') return p.tags.some((t) => ['Computer Vision', 'YOLOv8', 'OpenCV', 'EasyOCR'].includes(t));
+            if (key === 'Chemistry') return p.tags.some((t) => ['Chemistry', 'Process Modelling', 'Molecular Dynamics'].includes(t));
+            return p.tags.some((t) => t.toLowerCase() === key.toLowerCase());
+          });
+    if (nextFiltered.length > 0 && !nextFiltered.some((p) => p.id === selectedId)) {
+      setSelectedId(nextFiltered[0].id);
+    }
+  };
 
   return (
     <div className="relative w-full max-w-5xl bg-[#2a170e] rounded-3xl p-3 sm:p-5 border-4 border-[#5c2b14] shadow-[0_30px_70px_rgba(0,0,0,0.7)] text-[#451a03] font-sans select-none">
@@ -368,7 +388,7 @@ const ProjectsBinderModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             return (
               <button
                 key={tab.key}
-                onClick={() => setFilter(tab.key)}
+                onClick={() => handleSelectTab(tab.key)}
                 className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border whitespace-nowrap ${
                   isActive
                     ? 'bg-amber-400 text-amber-950 border-amber-300 shadow-sm font-black'
@@ -598,7 +618,7 @@ const SkillsGrimoireModal: React.FC<{ onClose: () => void }> = ({ onClose }) => 
           <Award className="w-4 h-4 text-amber-400" />
           <div className="text-[10px] font-mono text-amber-300 uppercase leading-tight font-bold">
             <p>Guild Rank: Senior Scholar</p>
-            <p className="text-amber-400/70">Final Year B.Tech • 8.65 CGPA</p>
+            <p className="text-amber-400/70">IIT Jodhpur • 7.52 CGPA</p>
           </div>
         </div>
       </div>
@@ -1485,948 +1505,6 @@ const CatSanctuaryModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <span className="text-base">✋</span>
               <span>Pet Byte</span>
             </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/* =========================================================================================
-   7. AUTOMATON GARDEN: "THE FARMER WAS REPLACED" CODE-DRIVEN MINI-GAME
-   Interactive Python programming & automation puzzle where visitors write scripts
-   to command Drone-Bot 01 to till soil, plant crops, irrigate, and harvest.
-   ========================================================================================= */
-
-interface FarmTile {
-  crop: 'none' | 'wheat' | 'carrot' | 'pumpkin';
-  watered: boolean;
-  growth: number; // 0=none, 1=sprout, 2=mature
-}
-
-interface DroneState {
-  x: number;
-  y: number;
-  dir: 'N' | 'E' | 'S' | 'W';
-}
-
-interface FarmAction {
-  type: 'move' | 'turn' | 'plant' | 'water' | 'harvest';
-  x: number;
-  y: number;
-  dir?: 'N' | 'E' | 'S' | 'W';
-  crop?: string;
-  mature?: boolean;
-}
-
-const MISSIONS = [
-  {
-    id: 'm1',
-    title: 'M1: Wheat Harvest',
-    badge: 'Tutorial',
-    targetScore: 30,
-    desc: 'The row ahead has ripe golden wheat! Step east and harvest the ripe crops.',
-    code: `# Mission 1: Move & Harvest Ripe Wheat
-for i in range(5):
-    if can_harvest():
-        harvest()
-    move(east)`,
-  },
-  {
-    id: 'm2',
-    title: 'M2: Carrot Furrow',
-    badge: 'Automation',
-    targetScore: 100,
-    desc: 'Step south to row 1, plant juicy carrots, water them to maturity, and harvest!',
-    code: `# Mission 2: Plant & Water Carrots
-move(south)
-for i in range(5):
-    plant("carrot")
-    water()
-    harvest()
-    move(east)`,
-  },
-  {
-    id: 'm3',
-    title: 'M3: Serpentine Loop',
-    badge: 'Advanced',
-    targetScore: 180,
-    desc: 'Snake through rows in a zigzag pattern to farm the entire 5x5 field!',
-    code: `# Mission 3: Full-Grid Serpentine Loop
-for y in range(5):
-    for x in range(4):
-        plant("wheat")
-        water()
-        harvest()
-        move(east if y % 2 == 0 else west)
-    move(south)`,
-  },
-  {
-    id: 'm4',
-    title: 'M4: Pumpkin Tycoon',
-    badge: 'High-Yield',
-    targetScore: 250,
-    desc: 'Plant high-value Royal Pumpkins (+50 pts each) down the columns!',
-    code: `# Mission 4: Royal Pumpkin Tycoon
-for i in range(5):
-    plant("pumpkin")
-    water()
-    harvest()
-    move(south)`,
-  },
-  {
-    id: 'm5',
-    title: 'Sandbox Garden',
-    badge: 'Creative',
-    targetScore: 0,
-    desc: 'Write your own custom farming algorithm or loop to automate your farm.',
-    code: `# Sandbox: Create your farming drone program!
-while True:
-    if is_empty():
-        plant("carrot")
-        water()
-    if can_harvest():
-        harvest()
-    move()`,
-  },
-];
-
-const createInitialGrid = (): FarmTile[][] => {
-  const g: FarmTile[][] = Array(5)
-    .fill(null)
-    .map(() => Array(5).fill(null).map(() => ({ crop: 'none', watered: false, growth: 0 })));
-
-  // Initial golden wheat in row 0
-  g[0][1] = { crop: 'wheat', watered: true, growth: 2 };
-  g[0][2] = { crop: 'wheat', watered: true, growth: 2 };
-  g[0][3] = { crop: 'wheat', watered: true, growth: 2 };
-
-  // Initial carrot seedlings in row 1
-  g[1][0] = { crop: 'carrot', watered: false, growth: 1 };
-  g[1][2] = { crop: 'carrot', watered: true, growth: 2 };
-  g[1][4] = { crop: 'carrot', watered: false, growth: 1 };
-
-  // Initial pumpkin in row 2
-  g[2][2] = { crop: 'pumpkin', watered: true, growth: 2 };
-
-  return g;
-};
-
-const parsePythonToJS = (code: string): string => {
-  const lines = code.split('\n');
-  let jsCode = '';
-  const indentStack = [0];
-
-  for (let rawLine of lines) {
-    const trimmed = rawLine.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-
-    const indentMatch = rawLine.match(/^(\s*)/);
-    const indent = indentMatch ? indentMatch[1].length : 0;
-
-    while (indentStack.length > 1 && indent < indentStack[indentStack.length - 1]) {
-      indentStack.pop();
-      jsCode += '}\n';
-    }
-
-    let line = trimmed;
-
-    // Python ternary: a if cond else b -> (cond ? a : b)
-    line = line.replace(/(\w+)\s+if\s+(.+?)\s+else\s+(\w+)/g, '($2 ? $1 : $3)');
-
-    // For range loop
-    const forRangeMatch = line.match(/^for\s+(\w+)\s+in\s+range\(([^)]+)\):$/);
-    if (forRangeMatch) {
-      const varName = forRangeMatch[1];
-      const rangeArg = forRangeMatch[2];
-      indentStack.push(indent + 4);
-      jsCode += `for (let ${varName} = 0; ${varName} < ${rangeArg}; ${varName}++) {\n`;
-      continue;
-    }
-
-    // Repeat N loop
-    const repeatMatch = line.match(/^repeat\s+(\d+):$/);
-    if (repeatMatch) {
-      indentStack.push(indent + 4);
-      jsCode += `for (let _r = 0; _r < ${repeatMatch[1]}; _r++) {\n`;
-      continue;
-    }
-
-    // While loop
-    const whileMatch = line.match(/^while\s+(.+):$/);
-    if (whileMatch) {
-      indentStack.push(indent + 4);
-      jsCode += `while (${whileMatch[1]}) {\n`;
-      continue;
-    }
-
-    // If condition
-    const ifMatch = line.match(/^if\s+(.+):$/);
-    if (ifMatch) {
-      indentStack.push(indent + 4);
-      jsCode += `if (${ifMatch[1]}) {\n`;
-      continue;
-    }
-
-    // Elif condition
-    const elifMatch = line.match(/^elif\s+(.+):$/);
-    if (elifMatch) {
-      jsCode += `} else if (${elifMatch[1]}) {\n`;
-      continue;
-    }
-
-    // Else condition
-    if (line === 'else:') {
-      jsCode += `} else {\n`;
-      continue;
-    }
-
-    // Plain statement normalization
-    if (line === 'move') line = 'move()';
-    else if (line === 'harvest') line = 'harvest()';
-    else if (line === 'water') line = 'water()';
-    else if (line === 'turn_left') line = 'turn_left()';
-    else if (line === 'turn_right') line = 'turn_right()';
-    else if (line.startsWith('plant ') && !line.includes('(')) {
-      const c = line.split(' ')[1];
-      line = `plant("${c}")`;
-    }
-
-    if (!line.endsWith(';') && !line.endsWith('{') && !line.endsWith('}')) {
-      line += ';';
-    }
-    jsCode += line + '\n';
-  }
-
-  while (indentStack.length > 1) {
-    indentStack.pop();
-    jsCode += '}\n';
-  }
-
-  return jsCode;
-};
-
-const AutomatonGardenModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [grid, setGrid] = useState<FarmTile[][]>(createInitialGrid);
-  const [drone, setDrone] = useState<DroneState>({ x: 0, y: 0, dir: 'E' });
-  const [score, setScore] = useState(0);
-  const [inventory, setInventory] = useState({ wheat: 0, carrot: 0, pumpkin: 0 });
-  const [activeMissionIdx, setActiveMissionIdx] = useState(0);
-  const [code, setCode] = useState(MISSIONS[0].code);
-  const [isRunning, setIsRunning] = useState(false);
-  const [speed, setSpeed] = useState<1 | 2 | 5>(2);
-  const [logs, setLogs] = useState<string[]>([
-    '🌱 Welcome to Drone-Bot 01 ("The Farmer Was Replaced").',
-    '⌨️ Enter Python commands or choose a mission above, then click [RUN SCRIPT].',
-  ]);
-  const [missionCleared, setMissionCleared] = useState(false);
-
-  const playbackTimerRef = useRef<any>(null);
-
-  useEffect(() => {
-    return () => {
-      if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
-    };
-  }, []);
-
-  const handleSelectMission = (idx: number) => {
-    if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
-    setIsRunning(false);
-    setActiveMissionIdx(idx);
-    setCode(MISSIONS[idx].code);
-    setGrid(createInitialGrid());
-    setDrone({ x: 0, y: 0, dir: 'E' });
-    setMissionCleared(false);
-    setLogs((prev) => [
-      `📂 Loaded ${MISSIONS[idx].title}`,
-      `🎯 Goal: ${MISSIONS[idx].desc}`,
-      ...prev.slice(0, 3),
-    ]);
-  };
-
-  const handleResetField = () => {
-    if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
-    setIsRunning(false);
-    setGrid(createInitialGrid());
-    setDrone({ x: 0, y: 0, dir: 'E' });
-    setMissionCleared(false);
-    setLogs((prev) => ['🔄 Farm plot re-tilled to pristine state.', ...prev.slice(0, 3)]);
-  };
-
-  // Compile and run the Python code
-  const handleRunCode = () => {
-    if (isRunning) {
-      if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
-      setIsRunning(false);
-      setLogs((prev) => ['⏹ Execution stopped by operator.', ...prev]);
-      return;
-    }
-
-    try {
-      // Create virtual simulation clone
-      const simGrid = grid.map((row) => row.map((cell) => ({ ...cell })));
-      const simDrone: DroneState = { ...drone };
-      const actions: FarmAction[] = [];
-      let tick = 0;
-      const MAX_TICKS = 220;
-
-      const DIRS: ('N' | 'E' | 'S' | 'W')[] = ['N', 'E', 'S', 'W'];
-      const north = 'N',
-        south = 'S',
-        east = 'E',
-        west = 'W';
-      const wheat = 'wheat',
-        carrot = 'carrot',
-        pumpkin = 'pumpkin';
-
-      const can_harvest = () => {
-        const cell = simGrid[simDrone.y][simDrone.x];
-        return cell.crop !== 'none' && cell.growth === 2;
-      };
-
-      const is_empty = () => simGrid[simDrone.y][simDrone.x].crop === 'none';
-      const get_x = () => simDrone.x;
-      const get_y = () => simDrone.y;
-
-      const move = (targetDir?: any) => {
-        if (tick++ > MAX_TICKS) throw new Error('Maximum safety execution limit (220 ticks) reached');
-        const d: string = (targetDir || simDrone.dir).toUpperCase();
-        if (d === 'N' || d === 'NORTH') {
-          simDrone.y = (simDrone.y - 1 + 5) % 5;
-          simDrone.dir = 'N';
-        } else if (d === 'S' || d === 'SOUTH') {
-          simDrone.y = (simDrone.y + 1) % 5;
-          simDrone.dir = 'S';
-        } else if (d === 'E' || d === 'EAST') {
-          simDrone.x = (simDrone.x + 1) % 5;
-          simDrone.dir = 'E';
-        } else if (d === 'W' || d === 'WEST') {
-          simDrone.x = (simDrone.x - 1 + 5) % 5;
-          simDrone.dir = 'W';
-        }
-        actions.push({ type: 'move', x: simDrone.x, y: simDrone.y, dir: simDrone.dir });
-      };
-
-      const turn_left = () => {
-        if (tick++ > MAX_TICKS) throw new Error('Maximum safety execution limit (220 ticks) reached');
-        const idx = DIRS.indexOf(simDrone.dir);
-        simDrone.dir = DIRS[(idx - 1 + 4) % 4];
-        actions.push({ type: 'turn', dir: simDrone.dir, x: simDrone.x, y: simDrone.y });
-      };
-
-      const turn_right = () => {
-        if (tick++ > MAX_TICKS) throw new Error('Maximum safety execution limit (220 ticks) reached');
-        const idx = DIRS.indexOf(simDrone.dir);
-        simDrone.dir = DIRS[(idx + 1) % 4];
-        actions.push({ type: 'turn', dir: simDrone.dir, x: simDrone.x, y: simDrone.y });
-      };
-
-      const plant = (cropType: string = 'wheat') => {
-        if (tick++ > MAX_TICKS) throw new Error('Maximum safety execution limit (220 ticks) reached');
-        const normalized = cropType.toLowerCase() as any;
-        simGrid[simDrone.y][simDrone.x] = { crop: normalized, watered: false, growth: 1 };
-        actions.push({ type: 'plant', crop: normalized, x: simDrone.x, y: simDrone.y });
-      };
-
-      const water = () => {
-        if (tick++ > MAX_TICKS) throw new Error('Maximum safety execution limit (220 ticks) reached');
-        const cell = simGrid[simDrone.y][simDrone.x];
-        cell.watered = true;
-        if (cell.crop !== 'none') cell.growth = 2; // Water instantly matures crop!
-        actions.push({ type: 'water', x: simDrone.x, y: simDrone.y });
-      };
-
-      const harvest = () => {
-        if (tick++ > MAX_TICKS) throw new Error('Maximum safety execution limit (220 ticks) reached');
-        const cell = simGrid[simDrone.y][simDrone.x];
-        const harvestedCrop = cell.crop;
-        const isMature = cell.growth === 2;
-        cell.crop = 'none';
-        cell.watered = false;
-        cell.growth = 0;
-        actions.push({
-          type: 'harvest',
-          crop: harvestedCrop,
-          mature: isMature,
-          x: simDrone.x,
-          y: simDrone.y,
-        });
-      };
-
-      // Compile Python to JS
-      const compiledJS = parsePythonToJS(code);
-      const runner = new Function(
-        'move',
-        'turn_left',
-        'turn_right',
-        'plant',
-        'water',
-        'harvest',
-        'can_harvest',
-        'is_empty',
-        'get_x',
-        'get_y',
-        'north',
-        'south',
-        'east',
-        'west',
-        'wheat',
-        'carrot',
-        'pumpkin',
-        compiledJS
-      );
-
-      runner(
-        move,
-        turn_left,
-        turn_right,
-        plant,
-        water,
-        harvest,
-        can_harvest,
-        is_empty,
-        get_x,
-        get_y,
-        north,
-        south,
-        east,
-        west,
-        wheat,
-        carrot,
-        pumpkin
-      );
-
-      if (actions.length === 0) {
-        setLogs((prev) => ['⚠️ Script executed with 0 drone actions.', ...prev]);
-        return;
-      }
-
-      // Start step-by-step playback
-      setIsRunning(true);
-      setLogs((prev) => [
-        `▶ Running script (${actions.length} action steps planned)...`,
-        ...prev.slice(0, 4),
-      ]);
-
-      let actionIdx = 0;
-      const intervalMs = speed === 1 ? 260 : speed === 2 ? 140 : 45;
-
-      playbackTimerRef.current = setInterval(() => {
-        if (actionIdx >= actions.length) {
-          clearInterval(playbackTimerRef.current);
-          setIsRunning(false);
-          setLogs((prev) => ['✨ Script execution finished!', ...prev]);
-
-          // Check mission target score
-          const curMission = MISSIONS[activeMissionIdx];
-          if (curMission.targetScore > 0) {
-            setScore((s) => {
-              if (s >= curMission.targetScore) {
-                setMissionCleared(true);
-                confetti({
-                  particleCount: 40,
-                  spread: 75,
-                  origin: { y: 0.55 },
-                  colors: ['#10b981', '#f59e0b', '#38bdf8', '#ffffff'],
-                });
-                setLogs((prev) => [
-                  `🏆 Mission Accomplished! Target of ${curMission.targetScore} pts achieved!`,
-                  ...prev,
-                ]);
-              }
-              return s;
-            });
-          }
-          return;
-        }
-
-        const act = actions[actionIdx++];
-
-        if (act.type === 'move') {
-          setDrone((d) => ({ ...d, x: act.x, y: act.y, dir: act.dir || d.dir }));
-          soundManager.playStep(true);
-        } else if (act.type === 'turn') {
-          setDrone((d) => ({ ...d, dir: act.dir || d.dir }));
-        } else if (act.type === 'plant') {
-          setGrid((prevGrid) => {
-            const next = prevGrid.map((r) => [...r]);
-            next[act.y][act.x] = { crop: act.crop as any, watered: false, growth: 1 };
-            return next;
-          });
-          soundManager.playPlant();
-          setLogs((prev) => [`🌱 Planted ${act.crop} at (${act.x}, ${act.y})`, ...prev.slice(0, 4)]);
-        } else if (act.type === 'water') {
-          setGrid((prevGrid) => {
-            const next = prevGrid.map((r) => [...r]);
-            const cell = next[act.y][act.x];
-            cell.watered = true;
-            if (cell.crop !== 'none') cell.growth = 2;
-            return next;
-          });
-          setLogs((prev) => [`💧 Irrigated furrow at (${act.x}, ${act.y})`, ...prev.slice(0, 4)]);
-        } else if (act.type === 'harvest') {
-          const harvestedCrop = act.crop || 'crop';
-          const isMature = act.mature;
-          const pts =
-            harvestedCrop === 'pumpkin' ? (isMature ? 50 : 10) :
-            harvestedCrop === 'carrot' ? (isMature ? 25 : 5) :
-            (isMature ? 10 : 2);
-
-          setGrid((prevGrid) => {
-            const next = prevGrid.map((r) => [...r]);
-            next[act.y][act.x] = { crop: 'none', watered: false, growth: 0 };
-            return next;
-          });
-
-          setScore((s) => s + pts);
-          setInventory((inv) => ({
-            ...inv,
-            [harvestedCrop]: (inv[harvestedCrop as keyof typeof inv] || 0) + 1,
-          }));
-
-          soundManager.playHarvest();
-          setLogs((prev) => [
-            `✂ Harvested ${harvestedCrop} (+${pts} pts)! Total: ${score + pts}`,
-            ...prev.slice(0, 4),
-          ]);
-        }
-      }, intervalMs);
-    } catch (err: any) {
-      setLogs((prev) => [`❌ Script Error: ${err.message || err}`, ...prev]);
-      setIsRunning(false);
-    }
-  };
-
-  // Quick Manual Controls for clicking or typing
-  const manualStep = (dir: 'N' | 'E' | 'S' | 'W') => {
-    let nx = drone.x;
-    let ny = drone.y;
-    if (dir === 'N') ny = (ny - 1 + 5) % 5;
-    else if (dir === 'S') ny = (ny + 1) % 5;
-    else if (dir === 'E') nx = (nx + 1) % 5;
-    else if (dir === 'W') nx = (nx - 1 + 5) % 5;
-    setDrone({ x: nx, y: ny, dir });
-    soundManager.playStep(true);
-  };
-
-  const manualPlant = (cropType: 'wheat' | 'carrot' | 'pumpkin') => {
-    setGrid((prev) => {
-      const next = prev.map((r) => [...r]);
-      next[drone.y][drone.x] = { crop: cropType, watered: false, growth: 1 };
-      return next;
-    });
-    soundManager.playPlant();
-  };
-
-  const manualWater = () => {
-    setGrid((prev) => {
-      const next = prev.map((r) => [...r]);
-      const cell = next[drone.y][drone.x];
-      cell.watered = true;
-      if (cell.crop !== 'none') cell.growth = 2;
-      return next;
-    });
-  };
-
-  const manualHarvest = () => {
-    const cell = grid[drone.y][drone.x];
-    if (cell.crop === 'none') return;
-    const pts = cell.crop === 'pumpkin' ? 50 : cell.crop === 'carrot' ? 25 : 10;
-    const crop = cell.crop;
-    setGrid((prev) => {
-      const next = prev.map((r) => [...r]);
-      next[drone.y][drone.x] = { crop: 'none', watered: false, growth: 0 };
-      return next;
-    });
-    setScore((s) => s + pts);
-    setInventory((inv) => ({ ...inv, [crop]: inv[crop as keyof typeof inv] + 1 }));
-    soundManager.playHarvest();
-  };
-
-  return (
-    <div className="relative w-full max-w-5xl bg-[#2a170e] rounded-3xl p-3 sm:p-5 border-4 border-[#5c2b14] shadow-[0_30px_70px_rgba(0,0,0,0.7)] text-[#451a03] font-sans select-none">
-      {/* Brass Corner Brackets */}
-      <div className="absolute top-2 left-2 w-5 h-5 border-t-2 border-l-2 border-amber-500/80 pointer-events-none" />
-      <div className="absolute top-2 right-2 w-5 h-5 border-t-2 border-r-2 border-amber-500/80 pointer-events-none" />
-      <div className="absolute bottom-2 left-2 w-5 h-5 border-b-2 border-l-2 border-amber-500/80 pointer-events-none" />
-      <div className="absolute bottom-2 right-2 w-5 h-5 border-b-2 border-r-2 border-amber-500/80 pointer-events-none" />
-
-      {/* Tactile Crimson Wax Seal Close Button */}
-      <button
-        onClick={onClose}
-        className="absolute -top-3.5 -right-3.5 z-30 w-10 h-10 rounded-full bg-[#dc2626] hover:bg-[#b91c1c] text-white border-b-4 border-[#991b1b] active:border-b-0 active:translate-y-1 shadow-xl flex items-center justify-center cursor-pointer transition-all"
-        title="Leave Garden [ESC]"
-      >
-        <X className="w-5 h-5 stroke-[3]" />
-      </button>
-
-      {/* Header Stamped Banner Plate */}
-      <div className="bg-gradient-to-r from-[#381e12] via-[#4a2617] to-[#381e12] rounded-2xl p-3.5 sm:px-6 mb-3 border border-[#6b3519] shadow-inner flex flex-col md:flex-row items-center justify-between gap-3 text-amber-100">
-        <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 via-amber-600 to-amber-800 border-2 border-amber-300 shadow-md flex items-center justify-center text-amber-950 shrink-0">
-            <Bot className="w-6 h-6 stroke-[2.5]" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono font-black uppercase tracking-[0.25em] text-amber-400">
-                THE FARMER WAS REPLACED • AUTONOMOUS GARDEN
-              </span>
-              <span className="text-amber-500">•</span>
-              <span className="text-[10px] font-mono font-bold text-amber-300">IIT JODHPUR</span>
-            </div>
-            <h2 className="text-base sm:text-lg font-black font-serif tracking-tight text-white mt-0.5">
-              AUTOMATON FARM ENGINE: CODE & CULTIVATE
-            </h2>
-            <p className="text-xs text-amber-200/80 font-medium">
-              Command Drone-Bot 01 via Python scripts • Till, irrigate & harvest ripe crops
-            </p>
-          </div>
-        </div>
-
-        {/* Live Score & Granary Badges */}
-        <div className="flex items-center gap-2 bg-[#2a170e]/80 border border-amber-600/40 p-2 rounded-xl text-right">
-          <div className="text-[10px] font-mono text-amber-300 leading-tight font-bold pr-2 border-r border-amber-700/50">
-            <p className="text-amber-400 text-xs">★ {score} PTS</p>
-            <p className="text-amber-300/70">Total Yield</p>
-          </div>
-          <div className="text-[11px] font-mono font-bold text-amber-100 flex items-center gap-1.5 pl-1">
-            <span title="Wheat">🌾 {inventory.wheat}</span>
-            <span title="Carrots">🥕 {inventory.carrot}</span>
-            <span title="Pumpkins">🎃 {inventory.pumpkin}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Parchment Inner Container */}
-      <div className="relative bg-[#fbf7ee] rounded-2xl p-4 sm:p-5 border border-[#dfceb5] shadow-inner">
-        {/* Subtle Draft Dot Texture */}
-        <div
-          className="absolute inset-0 rounded-2xl pointer-events-none opacity-25"
-          style={{
-            backgroundImage: 'radial-gradient(#b45309 0.75px, transparent 0.75px)',
-            backgroundSize: '20px 20px',
-          }}
-        />
-
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-[460px]">
-          {/* ================= LEFT COLUMN: 5x5 FARM PLOT & MANUAL COCKPIT (Cols 1-5) ================= */}
-          <div className="lg:col-span-5 bg-[#faf5eb] rounded-xl p-3.5 sm:p-4 border border-[#e5d5be] shadow-inner flex flex-col justify-between space-y-3">
-            <div>
-              {/* Drone Telemetry Status Bar */}
-              <div className="flex items-center justify-between border-b border-[#d97706]/30 pb-2 mb-3 text-xs">
-                <div className="flex items-center gap-1.5 font-mono font-bold text-[#78350f]">
-                  <span>🤖 Drone-Bot:</span>
-                  <span className="bg-[#fffdfa] border border-[#fed7aa] px-1.5 py-0.5 rounded text-[11px]">
-                    ({drone.x}, {drone.y})
-                  </span>
-                  <span className="text-amber-600 font-black">
-                    {drone.dir === 'N' ? '▲ N' : drone.dir === 'E' ? '▶ E' : drone.dir === 'S' ? '▼ S' : '◀ W'}
-                  </span>
-                </div>
-                <button
-                  onClick={handleResetField}
-                  className="px-2 py-0.5 rounded-md bg-[#fed7aa] hover:bg-[#fdba74] text-[#78350f] text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
-                  title="Reset farm crops"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Reset</span>
-                </button>
-              </div>
-
-              {/* 5x5 Garden Grid */}
-              <div className="bg-[#381e12] p-2.5 rounded-2xl border-4 border-[#5c2b14] shadow-inner aspect-square max-w-[340px] mx-auto grid grid-cols-5 gap-1.5">
-                {grid.map((row, rIdx) =>
-                  row.map((cell, cIdx) => {
-                    const isDroneHere = drone.x === cIdx && drone.y === rIdx;
-                    return (
-                      <div
-                        key={`cell-${rIdx}-${cIdx}`}
-                        onClick={() => setDrone((d) => ({ ...d, x: cIdx, y: rIdx }))}
-                        className={`relative rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer ${
-                          isDroneHere
-                            ? 'bg-[#4a2617] border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.5)] ring-2 ring-amber-400'
-                            : 'bg-[#2a170e] border-[#5c2b14] hover:bg-[#381e12]'
-                        }`}
-                      >
-                        {/* Coordinate watermark */}
-                        <span className="absolute top-0.5 left-1 text-[8px] font-mono text-amber-500/40">
-                          {cIdx},{rIdx}
-                        </span>
-
-                        {/* Water droplet indicator */}
-                        {cell.watered && (
-                          <span className="absolute top-0.5 right-1 text-[8px] text-sky-400">💧</span>
-                        )}
-
-                        {/* Crop visual */}
-                        <div className="text-xl sm:text-2xl pt-1">
-                          {cell.crop === 'none' && (
-                            <span className="opacity-20 text-xs text-amber-800">🟫</span>
-                          )}
-                          {cell.crop === 'wheat' && (
-                            <span className={cell.growth === 2 ? 'animate-bounce' : 'opacity-70 text-base'}>
-                              {cell.growth === 2 ? '🌾' : '🌱'}
-                            </span>
-                          )}
-                          {cell.crop === 'carrot' && (
-                            <span className={cell.growth === 2 ? 'animate-bounce' : 'opacity-70 text-base'}>
-                              {cell.growth === 2 ? '🥕' : '🌱'}
-                            </span>
-                          )}
-                          {cell.crop === 'pumpkin' && (
-                            <span className={cell.growth === 2 ? 'animate-bounce' : 'opacity-70 text-base'}>
-                              {cell.growth === 2 ? '🎃' : '🌱'}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Drone Overlay */}
-                        {isDroneHere && (
-                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <div className="w-8 h-8 rounded-full bg-amber-400/20 border border-amber-300 flex items-center justify-center text-sm shadow-md animate-pulse">
-                              🤖
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            {/* Manual Control Pad & Quick Actions */}
-            <div className="space-y-2 pt-1 border-t border-[#d97706]/30">
-              <div className="flex items-center justify-between text-[10px] font-mono font-bold text-[#92400e]">
-                <span>MANUAL OVERRIDE:</span>
-                <span className="text-[9px] text-[#78716c]">Click arrows or tile</span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                {/* D-Pad Arrows */}
-                <div className="grid grid-cols-3 gap-1">
-                  <div />
-                  <button
-                    onClick={() => manualStep('N')}
-                    className="p-1 rounded bg-[#fffdfa] hover:bg-[#fef3c7] border border-[#fed7aa] text-[#78350f] font-bold text-xs cursor-pointer shadow-xs"
-                  >
-                    ▲
-                  </button>
-                  <div />
-                  <button
-                    onClick={() => manualStep('W')}
-                    className="p-1 rounded bg-[#fffdfa] hover:bg-[#fef3c7] border border-[#fed7aa] text-[#78350f] font-bold text-xs cursor-pointer shadow-xs"
-                  >
-                    ◀
-                  </button>
-                  <button
-                    onClick={() => manualStep('S')}
-                    className="p-1 rounded bg-[#fffdfa] hover:bg-[#fef3c7] border border-[#fed7aa] text-[#78350f] font-bold text-xs cursor-pointer shadow-xs"
-                  >
-                    ▼
-                  </button>
-                  <button
-                    onClick={() => manualStep('E')}
-                    className="p-1 rounded bg-[#fffdfa] hover:bg-[#fef3c7] border border-[#fed7aa] text-[#78350f] font-bold text-xs cursor-pointer shadow-xs"
-                  >
-                    ▶
-                  </button>
-                </div>
-
-                {/* Quick Action Pills */}
-                <div className="flex-1 grid grid-cols-3 gap-1 text-[10px] font-bold">
-                  <button
-                    onClick={() => manualPlant('wheat')}
-                    className="py-1 px-1 rounded-lg bg-amber-600 hover:bg-amber-500 text-white shadow-xs cursor-pointer text-center"
-                  >
-                    🌾 Wheat
-                  </button>
-                  <button
-                    onClick={() => manualPlant('carrot')}
-                    className="py-1 px-1 rounded-lg bg-orange-600 hover:bg-orange-500 text-white shadow-xs cursor-pointer text-center"
-                  >
-                    🥕 Carrot
-                  </button>
-                  <button
-                    onClick={() => manualPlant('pumpkin')}
-                    className="py-1 px-1 rounded-lg bg-amber-800 hover:bg-amber-700 text-white shadow-xs cursor-pointer text-center"
-                  >
-                    🎃 Pumpkin
-                  </button>
-                  <button
-                    onClick={manualWater}
-                    className="col-span-1 py-1 px-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white shadow-xs cursor-pointer text-center flex items-center justify-center gap-0.5"
-                  >
-                    <Droplets className="w-2.5 h-2.5" />
-                    <span>Water</span>
-                  </button>
-                  <button
-                    onClick={manualHarvest}
-                    className="col-span-2 py-1 px-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs cursor-pointer text-center font-black"
-                  >
-                    ✂ Harvest Crop
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ================= RIGHT COLUMN: PYTHON IDE & CODE TERMINAL (Cols 6-12) ================= */}
-          <div className="lg:col-span-7 bg-[#faf5eb] rounded-xl p-3.5 sm:p-4 border border-[#e5d5be] shadow-inner flex flex-col justify-between space-y-3">
-            <div className="space-y-2.5">
-              {/* Mission Selector Tabs */}
-              <div className="flex flex-wrap items-center gap-1 border-b border-[#d97706]/30 pb-2">
-                {MISSIONS.map((m, idx) => {
-                  const isSelected = activeMissionIdx === idx;
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => handleSelectMission(idx)}
-                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer border ${
-                        isSelected
-                          ? 'bg-[#d97706] text-white border-[#92400e] shadow-xs'
-                          : 'bg-[#fffdfa] text-[#78350f] border-[#fed7aa] hover:bg-[#fef3c7]'
-                      }`}
-                    >
-                      {m.title}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Mission Goal Card */}
-              <div className="p-2.5 rounded-xl bg-[#fffdfa] border border-[#fed7aa] text-xs space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono font-black text-[#b45309] uppercase tracking-wider">
-                    {MISSIONS[activeMissionIdx].badge} Objective
-                  </span>
-                  {MISSIONS[activeMissionIdx].targetScore > 0 && (
-                    <span className="text-[9px] font-mono px-2 py-0.5 rounded-full bg-amber-100 text-[#b45309] font-bold border border-amber-300">
-                      Goal: {MISSIONS[activeMissionIdx].targetScore} pts
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-[#451a03] font-medium leading-snug">
-                  {MISSIONS[activeMissionIdx].desc}
-                </p>
-                {missionCleared && (
-                  <div className="text-[11px] font-bold text-emerald-700 bg-emerald-50 p-1.5 rounded-lg border border-emerald-300 flex items-center gap-1.5">
-                    <span>🏆</span>
-                    <span>Challenge Completed! Great programming!</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Monospace Code Editor */}
-              <div className="rounded-xl overflow-hidden border-2 border-[#5c2b14] shadow-md bg-[#1f130b] text-[#fef3c7]">
-                {/* Editor Header Bar */}
-                <div className="px-3 py-1.5 bg-[#2d180e] border-b border-[#5c2b14] flex items-center justify-between text-[10px] font-mono text-amber-300/80">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
-                    <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-                    <span className="font-bold text-amber-200 ml-1">drone_script.py</span>
-                  </div>
-                  <span className="text-[9px] text-amber-400/60 font-mono">Python 3 / TFWR API</span>
-                </div>
-
-                {/* Code Textarea with line numbers */}
-                <div className="flex p-2 font-mono text-xs">
-                  <div className="select-none pr-2.5 text-right text-amber-700/60 text-[11px] leading-relaxed border-r border-[#3f2212]">
-                    {[...Array(code.split('\n').length)].map((_, i) => (
-                      <div key={i}>{i + 1}</div>
-                    ))}
-                  </div>
-                  <textarea
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    rows={7}
-                    spellCheck={false}
-                    className="flex-1 pl-2.5 bg-transparent text-amber-100 text-xs font-mono leading-relaxed resize-none focus:outline-hidden"
-                  />
-                </div>
-              </div>
-
-              {/* Quick Syntax Pill Cheat-Sheet */}
-              <div className="space-y-1">
-                <span className="text-[9px] font-mono font-bold uppercase text-[#92400e]">
-                  Quick Commands (Click to insert):
-                </span>
-                <div className="flex flex-wrap gap-1 text-[10px] font-mono">
-                  {[
-                    'move()',
-                    'harvest()',
-                    'water()',
-                    'plant("wheat")',
-                    'plant("carrot")',
-                    'plant("pumpkin")',
-                    'turn_right()',
-                    'if can_harvest():',
-                    'for i in range(5):',
-                  ].map((cmd) => (
-                    <button
-                      key={cmd}
-                      onClick={() => setCode((prev) => `${prev.trim()}\n${cmd}`)}
-                      className="px-2 py-0.5 rounded-md bg-[#fffdfa] hover:bg-[#fef3c7] border border-[#fed7aa] text-[#78350f] cursor-pointer transition shadow-2xs font-bold"
-                    >
-                      {cmd}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Run & Speed Execution Controls */}
-            <div className="space-y-2 pt-2 border-t border-[#d97706]/30">
-              <div className="flex items-center justify-between gap-3">
-                {/* Run Button */}
-                <button
-                  onClick={handleRunCode}
-                  className={`flex-1 py-2.5 px-4 rounded-xl text-white font-black text-xs shadow-md transition flex items-center justify-center gap-2 cursor-pointer ${
-                    isRunning
-                      ? 'bg-[#dc2626] hover:bg-[#b91c1c] border-b-4 border-[#991b1b] animate-pulse'
-                      : 'bg-[#059669] hover:bg-[#10b981] border-b-4 border-[#047857] active:border-b-0 active:translate-y-1'
-                  }`}
-                >
-                  {isRunning ? (
-                    <>
-                      <Square className="w-4 h-4 fill-white" />
-                      <span>STOP EXECUTION</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4 fill-white" />
-                      <span>RUN SCRIPT</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Simulation Speed Pill Toggle */}
-                <div className="flex items-center gap-1 bg-[#fffdfa] border border-[#fed7aa] p-1 rounded-xl">
-                  {([1, 2, 5] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setSpeed(s)}
-                      className={`px-2 py-1 rounded-md text-[10px] font-mono font-bold cursor-pointer transition ${
-                        speed === s
-                          ? 'bg-[#d97706] text-white shadow-xs'
-                          : 'text-[#78350f] hover:bg-[#fef3c7]'
-                      }`}
-                    >
-                      {s}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Terminal Execution Trace Output */}
-              <div className="bg-[#1f130b] rounded-xl p-2.5 border border-[#5c2b14] max-h-[85px] overflow-y-auto font-mono text-[10px] text-amber-200/90 space-y-0.5">
-                {logs.map((log, i) => (
-                  <div key={i} className="leading-snug truncate">
-                    {log}
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
       </div>

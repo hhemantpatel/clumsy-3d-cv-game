@@ -5,9 +5,17 @@ import { ModalType } from '../../types/game';
 export const MobileControls: React.FC = () => {
   const { setMoveInput, nearbyZone, openModal, activeModal, hasStarted } = useGame();
   const [touchActive, setTouchActive] = useState<boolean>(false);
+  const [isTouchDevice, setIsTouchDevice] = useState<boolean>(false);
   const [knobPos, setKnobPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const touchOrigin = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const touchId = useRef<number | null>(null);
+
+  useEffect(() => {
+    setIsTouchDevice(
+      typeof window !== 'undefined' &&
+      ('ontouchstart' in window || navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches)
+    );
+  }, []);
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -80,11 +88,11 @@ export const MobileControls: React.FC = () => {
     }
   }, [activeModal, setMoveInput]);
 
-  // Don't render mobile controls when not started or when a modal is open
-  if (!hasStarted || activeModal) return null;
+  // Don't render mobile controls when not started, when a modal is open, or on non-touch devices
+  if (!hasStarted || activeModal || !isTouchDevice) return null;
 
   return (
-    <div className="md:hidden fixed inset-x-0 bottom-0 z-40 p-6 pointer-events-none flex items-end justify-between select-none">
+    <div className="fixed inset-x-0 bottom-0 z-40 p-6 pointer-events-none flex items-end justify-between select-none">
       {/* Virtual Joystick Base */}
       <div
         onTouchStart={handleTouchStart}

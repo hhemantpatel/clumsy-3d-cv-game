@@ -169,6 +169,36 @@ class SoundManager {
     }
   }
 
+  // Celebratory level-up / quest completion fanfare
+  public playLevelUp() {
+    if (this.isMuted || !this.ctx) return;
+    try {
+      const t = this.ctx.currentTime;
+      // C5, E5, G5, C6, E6 triumphant arpeggio
+      const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+      notes.forEach((freq, idx) => {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const noteTime = t + idx * 0.08;
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, noteTime);
+
+        gain.gain.setValueAtTime(0.12, noteTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 0.4);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(noteTime);
+        osc.stop(noteTime + 0.4);
+      });
+    } catch {
+      // Audio context might be restricted
+    }
+  }
+
   // Soft low-frequency garden breeze ambience
   private startAmbient() {
     if (this.ambientGain || !this.ctx) return;

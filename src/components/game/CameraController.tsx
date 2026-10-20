@@ -85,6 +85,8 @@ export const CameraController: React.FC<CameraControllerProps> = ({ engine }) =>
 
     // 'R' key resets camera directly behind player's back
     const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
       if (e.key === 'r' || e.key === 'R') {
         orbitState.current.userYawOffset = 0;
         orbitState.current.targetRadius = 6.8;
@@ -103,11 +105,19 @@ export const CameraController: React.FC<CameraControllerProps> = ({ engine }) =>
     canvas.addEventListener('pointerdown', handlePointerDown);
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
+    const handleResetEvent = () => {
+      orbitState.current.userYawOffset = 0;
+      orbitState.current.targetRadius = 6.8;
+      orbitState.current.targetPhi = Math.PI / 3.4;
+    };
+
+    window.addEventListener('reset-camera', handleResetEvent);
     canvas.addEventListener('wheel', handleWheel, { passive: false });
     window.addEventListener('keydown', handleKeyDown);
     canvas.addEventListener('dblclick', handleDblClick);
 
     return () => {
+      window.removeEventListener('reset-camera', handleResetEvent);
       canvas.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);

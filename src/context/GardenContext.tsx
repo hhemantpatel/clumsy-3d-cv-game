@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import confetti from 'canvas-confetti';
 import { soundManager } from '../utils/audio';
 
@@ -96,15 +96,17 @@ for i in range(5):
     title: 'Sandbox Garden',
     badge: 'Creative',
     targetScore: 0,
-    desc: 'Write your own custom farming algorithm and watch Drone-Bot execute it live in 3D!',
+    desc: 'Write your own autonomous drone algorithm and watch Drone-Bot execute it live in 3D!',
     code: `# Sandbox: Create your farming drone program!
-while True:
-    if is_empty():
-        plant("carrot")
-        water()
-    if can_harvest():
-        harvest()
-    move()`,
+for row in range(5):
+    for col in range(5):
+        if is_empty():
+            plant("carrot")
+            water()
+        if can_harvest():
+            harvest()
+        move(east)
+    move(south)`,
   },
 ];
 
@@ -131,15 +133,20 @@ export const createInitialGrid = (): FarmTile[][] => {
 
 export const parsePythonToJS = (code: string): string => {
   const lines = code.split('\n');
-  let jsCode = '';
+  let jsCode = 'let _loopSafety = 600;\n';
   const indentStack = [0];
 
   for (let rawLine of lines) {
-    const trimmed = rawLine.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
+    // Strip trailing inline comments
+    const stripped = rawLine.replace(/#.*$/, '').trimEnd();
+    if (!stripped.trim()) continue;
 
-    const indentMatch = rawLine.match(/^(\s*)/);
+    const indentMatch = stripped.match(/^(\s*)/);
     const indent = indentMatch ? indentMatch[1].length : 0;
+    const trimmed = stripped.trim();
+
+    const isElif = /^elif\s+(.+):$/.test(trimmed);
+    const isElse = trimmed === 'else:';
 
     while (indentStack.length > 1 && indent < indentStack[indentStack.length - 1]) {
       indentStack.pop();
@@ -148,6 +155,15 @@ export const parsePythonToJS = (code: string): string => {
 
     let line = trimmed;
 
+    // Python keyword mapping
+    line = line
+      .replace(/\bTrue\b/g, 'true')
+      .replace(/\bFalse\b/g, 'false')
+      .replace(/\bNone\b/g, 'null')
+      .replace(/\band\b/g, '&&')
+      .replace(/\bor\b/g, '||')
+      .replace(/\bnot\s+/g, '!');
+
     // Python ternary: a if cond else b -> (cond ? a : b)
     line = line.replace(/(\w+)\s+if\s+(.+?)\s+else\s+(\w+)/g, '($2 ? $1 : $3)');
 
@@ -155,9 +171,13 @@ export const parsePythonToJS = (code: string): string => {
     const forRangeMatch = line.match(/^for\s+(\w+)\s+in\s+range\(([^)]+)\):$/);
     if (forRangeMatch) {
       const varName = forRangeMatch[1];
-      const rangeArg = forRangeMatch[2];
+      const rangeArgs = forRangeMatch[2].split(',').map((s) => s.trim());
       indentStack.push(indent + 4);
-      jsCode += `for (let ${varName} = 0; ${varName} < ${rangeArg}; ${varName}++) {\n`;
+      if (rangeArgs.length >= 2) {
+        jsCode += `for (let ${varName} = ${rangeArgs[0]}; ${varName} < ${rangeArgs[1]}; ${varName}++) {\nif (--_loopSafety <= 0) break;\n`;
+      } else {
+        jsCode += `for (let ${varName} = 0; ${varName} < ${rangeArgs[0]}; ${varName}++) {\nif (--_loopSafety <= 0) break;\n`;
+      }
       continue;
     }
 
@@ -165,7 +185,7 @@ export const parsePythonToJS = (code: string): string => {
     const repeatMatch = line.match(/^repeat\s+(\d+):$/);
     if (repeatMatch) {
       indentStack.push(indent + 4);
-      jsCode += `for (let _r = 0; _r < ${repeatMatch[1]}; _r++) {\n`;
+      jsCode += `for (let _r = 0; _r < ${repeatMatch[1]}; _r++) {\nif (--_loopSafety <= 0) break;\n`;
       continue;
     }
 
@@ -173,7 +193,7 @@ export const parsePythonToJS = (code: string): string => {
     const whileMatch = line.match(/^while\s+(.+):$/);
     if (whileMatch) {
       indentStack.push(indent + 4);
-      jsCode += `while (${whileMatch[1]}) {\n`;
+      jsCode += `while (${whileMatch[1]}) {\nif (--_loopSafety <= 0) break;\n`;
       continue;
     }
 
@@ -188,17 +208,21 @@ export const parsePythonToJS = (code: string): string => {
     // Elif condition
     const elifMatch = line.match(/^elif\s+(.+):$/);
     if (elifMatch) {
+      if (indentStack.length > 1) indentStack.pop();
+      indentStack.push(indent + 4);
       jsCode += `} else if (${elifMatch[1]}) {\n`;
       continue;
     }
 
     // Else condition
-    if (line === 'else:') {
+    if (isElse) {
+      if (indentStack.length > 1) indentStack.pop();
+      indentStack.push(indent + 4);
       jsCode += `} else {\n`;
       continue;
     }
 
-    // Plain statement normalization
+    // Bare command statements
     if (line === 'move') line = 'move()';
     else if (line === 'harvest') line = 'harvest()';
     else if (line === 'water') line = 'water()';
@@ -207,6 +231,11 @@ export const parsePythonToJS = (code: string): string => {
     else if (line.startsWith('plant ') && !line.includes('(')) {
       const c = line.split(' ')[1];
       line = `plant("${c}")`;
+    }
+
+    // Prepend let to bare assignments so they do not leak
+    if (/^[a-zA-Z_]\w*\s*=\s*[^=].*$/.test(line) && !line.startsWith('let ')) {
+      line = 'let ' + line;
     }
 
     if (!line.endsWith(';') && !line.endsWith('{') && !line.endsWith('}')) {
@@ -223,6 +252,17 @@ export const parsePythonToJS = (code: string): string => {
   return jsCode;
 };
 
+const STORAGE_KEY = 'clumsy_cv_garden_cleared_v1';
+
+const getInitialClearedMissions = (): Record<string, boolean> => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
 interface GardenContextType {
   grid: FarmTile[][];
   drone: DroneState;
@@ -234,6 +274,9 @@ interface GardenContextType {
   speed: 1 | 2 | 5;
   logs: string[];
   missionCleared: boolean;
+  clearedMissions: Record<string, boolean>;
+  selectedSeed: 'wheat' | 'carrot' | 'pumpkin';
+  setSelectedSeed: (seed: 'wheat' | 'carrot' | 'pumpkin') => void;
   setGrid: React.Dispatch<React.SetStateAction<FarmTile[][]>>;
   setDrone: React.Dispatch<React.SetStateAction<DroneState>>;
   setCode: (code: string) => void;
@@ -244,7 +287,7 @@ interface GardenContextType {
   resetField: () => void;
   selectMission: (idx: number) => void;
   manualStep: (dir: 'N' | 'E' | 'S' | 'W') => void;
-  manualPlant: (cropType: 'wheat' | 'carrot' | 'pumpkin') => void;
+  manualPlant: (cropType?: 'wheat' | 'carrot' | 'pumpkin') => void;
   manualWater: () => void;
   manualHarvest: () => void;
 }
@@ -272,58 +315,21 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     '🌱 3D Automaton Garden connected to Drone-Bot 01.',
     '⌨️ Edit Python code, move the window, and watch Drone-Bot farm in real 3D!',
   ]);
+  const [clearedMissions, setClearedMissions] = useState<Record<string, boolean>>(getInitialClearedMissions);
   const [missionCleared, setMissionCleared] = useState(false);
+  const [selectedSeed, setSelectedSeed] = useState<'wheat' | 'carrot' | 'pumpkin'>('wheat');
 
   const playbackTimerRef = useRef<any>(null);
+  const scoreRef = useRef(0);
+  scoreRef.current = score;
 
-  useEffect(() => {
-    return () => {
-      if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
-    };
-  }, []);
-
-  const selectMission = useCallback((idx: number) => {
-    if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
-    setIsRunning(false);
-    setActiveMissionIdx(idx);
-    setCode(GARDEN_MISSIONS[idx].code);
-    setGrid(createInitialGrid());
-    setDrone({
-      x: 0,
-      y: 0,
-      dir: 'E',
-      isMoving: false,
-      isWatering: false,
-      isPlanting: false,
-      isHarvesting: false,
-    });
-    setMissionCleared(false);
-    setLogs((prev) => [
-      `📂 Loaded ${GARDEN_MISSIONS[idx].title}`,
-      `🎯 Goal: ${GARDEN_MISSIONS[idx].desc}`,
-      ...prev.slice(0, 3),
-    ]);
-  }, []);
-
-  const resetField = useCallback(() => {
-    if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
-    setIsRunning(false);
-    setGrid(createInitialGrid());
-    setDrone({
-      x: 0,
-      y: 0,
-      dir: 'E',
-      isMoving: false,
-      isWatering: false,
-      isPlanting: false,
-      isHarvesting: false,
-    });
-    setMissionCleared(false);
-    setLogs((prev) => ['🔄 Farm plot re-tilled to pristine state.', ...prev.slice(0, 3)]);
-  }, []);
+  const currentMission = GARDEN_MISSIONS[activeMissionIdx] ?? GARDEN_MISSIONS[0];
 
   const stopScript = useCallback(() => {
-    if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
+    if (playbackTimerRef.current) {
+      clearInterval(playbackTimerRef.current);
+      playbackTimerRef.current = null;
+    }
     setIsRunning(false);
     setDrone((d) => ({
       ...d,
@@ -332,8 +338,60 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       isPlanting: false,
       isHarvesting: false,
     }));
-    setLogs((prev) => ['⏹ Execution stopped by operator.', ...prev]);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
+    };
+  }, []);
+
+  const selectMission = useCallback(
+    (idx: number) => {
+      stopScript();
+      setActiveMissionIdx(idx);
+      setCode(GARDEN_MISSIONS[idx].code);
+      setGrid(createInitialGrid());
+      setDrone({
+        x: 0,
+        y: 0,
+        dir: 'E',
+        isMoving: false,
+        isWatering: false,
+        isPlanting: false,
+        isHarvesting: false,
+      });
+      // CRITICAL FIX: Reset score and inventory on mission change
+      setScore(0);
+      setInventory({ wheat: 0, carrot: 0, pumpkin: 0 });
+      setMissionCleared(false);
+      setLogs((prev) => [
+        `📂 Loaded ${GARDEN_MISSIONS[idx].title}`,
+        `🎯 Goal: ${GARDEN_MISSIONS[idx].desc}`,
+        ...prev.slice(0, 3),
+      ]);
+    },
+    [stopScript]
+  );
+
+  const resetField = useCallback(() => {
+    stopScript();
+    setGrid(createInitialGrid());
+    setDrone({
+      x: 0,
+      y: 0,
+      dir: 'E',
+      isMoving: false,
+      isWatering: false,
+      isPlanting: false,
+      isHarvesting: false,
+    });
+    // CRITICAL FIX: Reset score and inventory on reset
+    setScore(0);
+    setInventory({ wheat: 0, carrot: 0, pumpkin: 0 });
+    setMissionCleared(false);
+    setLogs((prev) => ['🔄 Farm plot re-tilled to pristine state. Score reset.', ...prev.slice(0, 3)]);
+  }, [stopScript]);
 
   const runScript = useCallback(() => {
     if (isRunning) {
@@ -401,7 +459,7 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       const plant = (cropType: string = 'wheat') => {
         if (tick++ > MAX_TICKS) throw new Error('Maximum safety execution limit (220 ticks) reached');
-        const normalized = cropType.toLowerCase() as any;
+        const normalized = (cropType || 'wheat').toLowerCase() as any;
         simGrid[simDrone.y][simDrone.x] = { crop: normalized, watered: false, growth: 1 };
         actions.push({ type: 'plant', crop: normalized, x: simDrone.x, y: simDrone.y });
       };
@@ -474,7 +532,7 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       );
 
       if (actions.length === 0) {
-        setLogs((prev) => ['⚠️ Script executed with 0 drone actions.', ...prev]);
+        setLogs((prev) => ['⚠️ Script produced 0 drone actions. Check loop conditions.', ...prev]);
         return;
       }
 
@@ -484,45 +542,38 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         ...prev.slice(0, 4),
       ]);
 
-      let actionIdx = 0;
-      const intervalMs = speed === 1 ? 320 : speed === 2 ? 180 : 70;
+      let stepIdx = 0;
+      let runningScore = scoreRef.current;
+      const intervalMs = speed === 5 ? 140 : speed === 2 ? 320 : 650;
+
+      if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
 
       playbackTimerRef.current = setInterval(() => {
-        if (actionIdx >= actions.length) {
-          clearInterval(playbackTimerRef.current);
-          setIsRunning(false);
-          setDrone((d) => ({
-            ...d,
-            isMoving: false,
-            isWatering: false,
-            isPlanting: false,
-            isHarvesting: false,
-          }));
-          setLogs((prev) => ['✨ 3D Farm script finished!', ...prev]);
+        if (stepIdx >= actions.length) {
+          stopScript();
+          setLogs((prev) => ['✅ 3D Drone mission program finished.', ...prev.slice(0, 4)]);
 
-          const curMission = GARDEN_MISSIONS[activeMissionIdx];
-          if (curMission.targetScore > 0) {
-            setScore((s) => {
-              if (s >= curMission.targetScore) {
-                setMissionCleared(true);
-                confetti({
-                  particleCount: 50,
-                  spread: 80,
-                  origin: { y: 0.5 },
-                  colors: ['#10b981', '#f59e0b', '#38bdf8', '#ffffff'],
-                });
-                setLogs((prev) => [
-                  `🏆 Mission Accomplished! Target of ${curMission.targetScore} pts achieved!`,
-                  ...prev,
-                ]);
-              }
-              return s;
+          // Check mission success
+          if (currentMission.targetScore > 0 && runningScore >= currentMission.targetScore) {
+            setMissionCleared(true);
+            confetti({ particleCount: 75, spread: 80, origin: { y: 0.6 } });
+            soundManager.playLevelUp();
+            setClearedMissions((prev) => {
+              const updated = { ...prev, [currentMission.id]: true };
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+              } catch {}
+              return updated;
             });
+            setLogs((prev) => [
+              `🎉 OBJECTIVE CLEARED! ${currentMission.title} complete!`,
+              ...prev.slice(0, 4),
+            ]);
           }
           return;
         }
 
-        const act = actions[actionIdx++];
+        const act = actions[stepIdx++];
 
         if (act.type === 'move') {
           setDrone((d) => ({
@@ -537,20 +588,28 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }));
           soundManager.playStep(true);
         } else if (act.type === 'turn') {
-          setDrone((d) => ({ ...d, dir: act.dir || d.dir }));
+          setDrone((d) => ({
+            ...d,
+            dir: act.dir || d.dir,
+            isMoving: false,
+            isWatering: false,
+            isPlanting: false,
+            isHarvesting: false,
+          }));
         } else if (act.type === 'plant') {
+          const cropName = (act.crop as any) || 'wheat';
           setDrone((d) => ({ ...d, isPlanting: true, isMoving: false, isWatering: false, isHarvesting: false }));
           setGrid((prevGrid) => {
-            const next = prevGrid.map((r) => [...r]);
-            next[act.y][act.x] = { crop: act.crop as any, watered: false, growth: 1 };
+            const next = prevGrid.map((r) => r.map((c) => ({ ...c })));
+            next[act.y][act.x] = { crop: cropName, watered: false, growth: 1 };
             return next;
           });
           soundManager.playPlant();
-          setLogs((prev) => [`🌱 Planted ${act.crop} in 3D soil at (${act.x}, ${act.y})`, ...prev.slice(0, 4)]);
+          setLogs((prev) => [`🌱 Planted ${cropName} seed at (${act.x}, ${act.y})`, ...prev.slice(0, 4)]);
         } else if (act.type === 'water') {
           setDrone((d) => ({ ...d, isWatering: true, isMoving: false, isPlanting: false, isHarvesting: false }));
           setGrid((prevGrid) => {
-            const next = prevGrid.map((r) => [...r]);
+            const next = prevGrid.map((r) => r.map((c) => ({ ...c })));
             const cell = next[act.y][act.x];
             cell.watered = true;
             if (cell.crop !== 'none') cell.growth = 2;
@@ -559,20 +618,29 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setLogs((prev) => [`💧 Irrigated 3D furrow at (${act.x}, ${act.y})`, ...prev.slice(0, 4)]);
         } else if (act.type === 'harvest') {
           setDrone((d) => ({ ...d, isHarvesting: true, isMoving: false, isWatering: false, isPlanting: false }));
-          const harvestedCrop = act.crop || 'crop';
+
+          // CRITICAL FIX: Harvesting empty tile gives 0 pts and does NOT add 'none' to inventory
+          if (!act.crop || act.crop === 'none') {
+            setLogs((prev) => [`✂ Attempted harvest at (${act.x}, ${act.y}): furrow was empty.`, ...prev.slice(0, 4)]);
+            return;
+          }
+
+          const harvestedCrop = act.crop;
           const isMature = act.mature;
           const pts =
             harvestedCrop === 'pumpkin' ? (isMature ? 50 : 10) :
             harvestedCrop === 'carrot' ? (isMature ? 25 : 5) :
             (isMature ? 10 : 2);
 
+          runningScore += pts;
+
           setGrid((prevGrid) => {
-            const next = prevGrid.map((r) => [...r]);
+            const next = prevGrid.map((r) => r.map((c) => ({ ...c })));
             next[act.y][act.x] = { crop: 'none', watered: false, growth: 0 };
             return next;
           });
 
-          setScore((s) => s + pts);
+          setScore(runningScore);
           setInventory((inv) => ({
             ...inv,
             [harvestedCrop]: (inv[harvestedCrop as keyof typeof inv] || 0) + 1,
@@ -580,7 +648,7 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
           soundManager.playHarvest();
           setLogs((prev) => [
-            `✂ 3D Harvested ${harvestedCrop} (+${pts} pts)! Total: ${score + pts}`,
+            `✂ 3D Harvested ${harvestedCrop} (+${pts} pts)! Total: ${runningScore}`,
             ...prev.slice(0, 4),
           ]);
         }
@@ -589,7 +657,7 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setLogs((prev) => [`❌ Script Error: ${err.message || err}`, ...prev]);
       setIsRunning(false);
     }
-  }, [code, drone, grid, isRunning, speed, activeMissionIdx, score, stopScript]);
+  }, [code, drone, grid, isRunning, speed, currentMission, stopScript]);
 
   const manualStep = useCallback((dir: 'N' | 'E' | 'S' | 'W') => {
     setDrone((d) => {
@@ -604,22 +672,23 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     soundManager.playStep(true);
   }, []);
 
-  const manualPlant = useCallback((cropType: 'wheat' | 'carrot' | 'pumpkin') => {
+  const manualPlant = useCallback((cropType?: 'wheat' | 'carrot' | 'pumpkin') => {
+    const cropToPlant = cropType || selectedSeed;
     setDrone((d) => {
       setGrid((prev) => {
-        const next = prev.map((r) => [...r]);
-        next[d.y][d.x] = { crop: cropType, watered: false, growth: 1 };
+        const next = prev.map((r) => r.map((c) => ({ ...c })));
+        next[d.y][d.x] = { crop: cropToPlant, watered: false, growth: 1 };
         return next;
       });
       return { ...d, isPlanting: true, isMoving: false, isWatering: false, isHarvesting: false };
     });
     soundManager.playPlant();
-  }, []);
+  }, [selectedSeed]);
 
   const manualWater = useCallback(() => {
     setDrone((d) => {
       setGrid((prev) => {
-        const next = prev.map((r) => [...r]);
+        const next = prev.map((r) => r.map((c) => ({ ...c })));
         const cell = next[d.y][d.x];
         cell.watered = true;
         if (cell.crop !== 'none') cell.growth = 2;
@@ -631,24 +700,31 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const manualHarvest = useCallback(() => {
     setDrone((d) => {
+      const cell = grid[d.y]?.[d.x];
+      if (!cell || cell.crop === 'none') {
+        soundManager.playBump();
+        return d;
+      }
+      const pts = cell.growth === 2
+        ? (cell.crop === 'pumpkin' ? 50 : cell.crop === 'carrot' ? 25 : 10)
+        : (cell.crop === 'pumpkin' ? 10 : cell.crop === 'carrot' ? 5 : 2);
+      const crop = cell.crop;
+
       setGrid((prev) => {
-        const cell = prev[d.y][d.x];
-        if (cell.crop === 'none') return prev;
-        const pts = cell.crop === 'pumpkin' ? 50 : cell.crop === 'carrot' ? 25 : 10;
-        const crop = cell.crop;
-        const next = prev.map((r) => [...r]);
+        const next = prev.map((r) => r.map((c) => ({ ...c })));
         next[d.y][d.x] = { crop: 'none', watered: false, growth: 0 };
-        setScore((s) => s + pts);
-        setInventory((inv) => ({ ...inv, [crop]: inv[crop as keyof typeof inv] + 1 }));
-        soundManager.playHarvest();
         return next;
       });
+      setScore((s) => s + pts);
+      setInventory((inv) => ({ ...inv, [crop]: (inv[crop as keyof typeof inv] || 0) + 1 }));
+      soundManager.playHarvest();
+
       return { ...d, isHarvesting: true, isMoving: false, isWatering: false, isPlanting: false };
     });
-  }, []);
+  }, [grid]);
 
-  useEffect(() => {
-    (window as any).__garden = {
+  const contextValue = useMemo<GardenContextType>(
+    () => ({
       grid,
       drone,
       score,
@@ -656,44 +732,51 @@ export const GardenProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       activeMissionIdx,
       code,
       isRunning,
+      speed,
+      logs,
+      missionCleared,
+      clearedMissions,
+      selectedSeed,
+      setSelectedSeed,
+      setGrid,
+      setDrone,
+      setCode,
+      setActiveMissionIdx,
+      setSpeed,
       runScript,
       stopScript,
       resetField,
       selectMission,
-    };
-  }, [grid, drone, score, inventory, activeMissionIdx, code, isRunning, runScript, stopScript, resetField, selectMission]);
-
-  return (
-    <GardenContext.Provider
-      value={{
-        grid,
-        drone,
-        score,
-        inventory,
-        activeMissionIdx,
-        code,
-        isRunning,
-        speed,
-        logs,
-        missionCleared,
-        setGrid,
-        setDrone,
-        setCode,
-        setActiveMissionIdx,
-        setSpeed,
-        runScript,
-        stopScript,
-        resetField,
-        selectMission,
-        manualStep,
-        manualPlant,
-        manualWater,
-        manualHarvest,
-      }}
-    >
-      {children}
-    </GardenContext.Provider>
+      manualStep,
+      manualPlant,
+      manualWater,
+      manualHarvest,
+    }),
+    [
+      grid,
+      drone,
+      score,
+      inventory,
+      activeMissionIdx,
+      code,
+      isRunning,
+      speed,
+      logs,
+      missionCleared,
+      clearedMissions,
+      selectedSeed,
+      runScript,
+      stopScript,
+      resetField,
+      selectMission,
+      manualStep,
+      manualPlant,
+      manualWater,
+      manualHarvest,
+    ]
   );
+
+  return <GardenContext.Provider value={contextValue}>{children}</GardenContext.Provider>;
 };
 
 export const useGarden = () => {

@@ -12,7 +12,7 @@ import { textureGen } from '../../utils/textures';
 export const Scenery: React.FC = () => {
   const cloudsRef = useRef<THREE.Group>(null);
   const windmillRef = useRef<THREE.Group>(null);
-  const waterRef = useRef<THREE.MeshPhysicalMaterial>(null);
+  const waterRef = useRef<THREE.MeshStandardMaterial>(null);
   const boatRef = useRef<THREE.Group>(null);
   const balloonRef = useRef<THREE.Group>(null);
 
@@ -44,7 +44,7 @@ export const Scenery: React.FC = () => {
 
     // Gentle boat bobbing in water
     if (boatRef.current) {
-      boatRef.current.position.y = -0.04 + Math.sin(t * 1.8) * 0.03;
+      boatRef.current.position.y = 0.06 + Math.sin(t * 1.8) * 0.025;
       boatRef.current.rotation.z = Math.sin(t * 1.4) * 0.04;
       boatRef.current.rotation.x = Math.cos(t * 1.2) * 0.03;
     }
@@ -100,29 +100,28 @@ export const Scenery: React.FC = () => {
   return (
     <group position={[0, 0, 0]}>
       {/* 1. Natural Flowing River with Pebble Banks */}
-      <mesh receiveShadow position={[-30, -0.18, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
+      <mesh receiveShadow position={[-30, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
         <planeGeometry args={[16, 180]} />
         <meshStandardMaterial color="#57534e" roughness={0.95} metalness={0.0} />
       </mesh>
-      <mesh receiveShadow position={[-23, -0.04, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
+      <mesh receiveShadow position={[-23, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
         <planeGeometry args={[4.5, 180]} />
         <meshStandardMaterial color="#78716c" roughness={0.9} metalness={0.0} />
       </mesh>
-      <mesh receiveShadow position={[-37, -0.04, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
+      <mesh receiveShadow position={[-37, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
         <planeGeometry args={[4.5, 180]} />
         <meshStandardMaterial color="#78716c" roughness={0.9} metalness={0.0} />
       </mesh>
-      <mesh receiveShadow position={[-30, -0.03, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
+      <mesh receiveShadow position={[-30, 0.045, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
         <planeGeometry args={[12, 175]} />
-        <meshPhysicalMaterial
+        <meshStandardMaterial
           ref={waterRef}
           color="#0284c7"
           normalMap={waterNormal}
-          roughness={0.06}
-          metalness={0.25}
-          transmission={0.35}
-          ior={1.33}
-          thickness={0.6}
+          roughness={0.08}
+          metalness={0.2}
+          transparent
+          opacity={0.88}
         />
       </mesh>
 
@@ -371,7 +370,7 @@ const RiverDock: React.FC<{ boatRef: React.RefObject<THREE.Group> }> = ({ boatRe
       </group>
 
       {/* Moored Wooden Rowboat gently bobbing in water */}
-      <group ref={boatRef} position={[-5.4, -0.04, 0]} rotation={[0, 0.15, 0]}>
+      <group ref={boatRef} position={[-5.4, 0.06, 0]} rotation={[0, 0.15, 0]}>
         {/* Boat Hull Outer */}
         <RoundedBox args={[3.2, 0.42, 1.2]} radius={0.12} smoothness={4} >
           <meshStandardMaterial color="#92400e" roughness={0.7} />
@@ -403,7 +402,7 @@ const RiverDock: React.FC<{ boatRef: React.RefObject<THREE.Group> }> = ({ boatRe
 
       {/* Floating Water Lily Pads with Pink Lotus Flowers */}
       {[[ -3.5, 2.2 ], [ -4.8, 2.8 ], [ -6.2, -2.4 ], [ -3.8, -2.8 ]].map(([lx, lz], idx) => (
-        <group key={idx} position={[lx, -0.02, lz]}>
+        <group key={idx} position={[lx, 0.05, lz]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
             <circleGeometry args={[0.35 + (idx % 2) * 0.1, 16]} />
             <meshStandardMaterial color="#15803d" roughness={0.8} />

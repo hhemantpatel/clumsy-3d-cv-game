@@ -144,8 +144,8 @@ export const Interactables: React.FC = () => {
           </mesh>
         </group>
 
-        {/* Premium Ergonomic Office Chair */}
-        <group position={[0, 0, 0.65]} rotation={[0, Math.PI, 0]}>
+        {/* Premium Ergonomic Office Chair (Facing Desk) */}
+        <group position={[0, 0, 0.65]} rotation={[0, 0, 0]}>
           {/* Seat Cushion */}
           <RoundedBox args={[0.56, 0.1, 0.52]} radius={0.04} smoothness={4} position={[0, 0.5, 0]} castShadow>
             <meshStandardMaterial color="#1e1b4b" roughness={0.7} />
@@ -194,50 +194,97 @@ export const Interactables: React.FC = () => {
 
       {/* ---------------- 2. HIGH-FIDELITY SKILLS BOOKSHELF ---------------- */}
       <group position={[-5.8, 0, -4.5]}>
-        {/* Rounded Modern Bookcase */}
-        <RoundedBox args={[0.85, 3.4, 2.0]} radius={0.04} smoothness={4} position={[0, 1.7, 0]} castShadow receiveShadow>
-          <meshStandardMaterial color="#1c1917" roughness={0.5} metalness={0.1} />
-        </RoundedBox>
-
-        {/* Inner Shelving Cavity */}
-        <mesh position={[0.04, 1.7, 0]}>
-          <boxGeometry args={[0.78, 3.2, 1.88]} />
-          <meshStandardMaterial color="#292524" roughness={0.8} />
+        {/* Open-front Craftsman Bookcase Frame */}
+        {/* Back Panel */}
+        <mesh position={[-0.26, 1.7, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.06, 3.4, 1.96]} />
+          <meshStandardMaterial color="#1c1917" roughness={0.6} />
+        </mesh>
+        {/* Top Board */}
+        <mesh position={[0, 3.37, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.58, 0.06, 1.96]} />
+          <meshStandardMaterial color="#1c1917" roughness={0.6} />
+        </mesh>
+        {/* Bottom Base */}
+        <mesh position={[0, 0.03, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.58, 0.06, 1.96]} />
+          <meshStandardMaterial color="#1c1917" roughness={0.6} />
+        </mesh>
+        {/* Left Side Panel */}
+        <mesh position={[0, 1.7, -0.95]} castShadow receiveShadow>
+          <boxGeometry args={[0.58, 3.4, 0.06]} />
+          <meshStandardMaterial color="#1c1917" roughness={0.6} />
+        </mesh>
+        {/* Right Side Panel */}
+        <mesh position={[0, 1.7, 0.95]} castShadow receiveShadow>
+          <boxGeometry args={[0.58, 3.4, 0.06]} />
+          <meshStandardMaterial color="#1c1917" roughness={0.6} />
         </mesh>
 
-        {/* Varied Colorful Book Spines with Gold Ribbons */}
-        <group position={[0.1, 0.7, 0]}>
-          <mesh castShadow position={[0, 0.2, -0.4]}>
-            <boxGeometry args={[0.55, 0.42, 0.12]} />
+        {/* Horizontal Wooden Shelves */}
+        <mesh position={[0, 0.82, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.52, 0.04, 1.84]} />
+          <meshStandardMaterial color="#292524" roughness={0.7} />
+        </mesh>
+        <mesh position={[0, 1.64, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.52, 0.04, 1.84]} />
+          <meshStandardMaterial color="#292524" roughness={0.7} />
+        </mesh>
+        <mesh position={[0, 2.46, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.52, 0.04, 1.84]} />
+          <meshStandardMaterial color="#292524" roughness={0.7} />
+        </mesh>
+
+        {/* Shelf 1: Varied Colorful Book Spines */}
+        <group position={[0.02, 0.84, 0]}>
+          <mesh castShadow position={[0, 0.21, -0.5]}>
+            <boxGeometry args={[0.36, 0.42, 0.12]} />
             <meshStandardMaterial color="#ef4444" roughness={0.4} />
           </mesh>
-          <mesh castShadow position={[0, 0.22, -0.2]}>
-            <boxGeometry args={[0.55, 0.46, 0.14]} />
+          <mesh castShadow position={[0, 0.23, -0.3]}>
+            <boxGeometry args={[0.36, 0.46, 0.14]} />
             <meshStandardMaterial color="#f97316" roughness={0.4} />
           </mesh>
-          <mesh castShadow position={[0, 0.19, 0.1]}>
-            <boxGeometry args={[0.55, 0.4, 0.16]} />
+          <mesh castShadow position={[0, 0.2, 0.0]}>
+            <boxGeometry args={[0.36, 0.4, 0.16]} />
             <meshStandardMaterial color="#06b6d4" roughness={0.4} />
           </mesh>
-          <mesh castShadow position={[0, 0.23, 0.4]}>
-            <boxGeometry args={[0.55, 0.48, 0.18]} />
+          <mesh castShadow position={[0, 0.24, 0.35]}>
+            <boxGeometry args={[0.36, 0.48, 0.18]} />
             <meshStandardMaterial color="#8b5cf6" roughness={0.4} />
           </mesh>
         </group>
 
-        <group position={[0.1, 1.5, 0]}>
-          <mesh castShadow position={[0, 0.2, -0.3]}>
-            <boxGeometry args={[0.55, 0.44, 0.2]} />
+        {/* Shelf 2: Technical Volumes & Hardcovers */}
+        <group position={[0.02, 1.66, 0]}>
+          <mesh castShadow position={[0, 0.22, -0.4]}>
+            <boxGeometry args={[0.36, 0.44, 0.2]} />
             <meshStandardMaterial color="#10b981" roughness={0.4} />
           </mesh>
-          <mesh castShadow position={[0, 0.24, 0.1]}>
-            <boxGeometry args={[0.55, 0.5, 0.22]} />
+          <mesh castShadow position={[0, 0.25, 0.1]}>
+            <boxGeometry args={[0.36, 0.5, 0.22]} />
             <meshStandardMaterial color="#3b82f6" roughness={0.4} />
+          </mesh>
+          <mesh castShadow position={[0, 0.21, 0.5]}>
+            <boxGeometry args={[0.36, 0.42, 0.16]} />
+            <meshStandardMaterial color="#ec4899" roughness={0.4} />
+          </mesh>
+        </group>
+
+        {/* Shelf 3: Reference Handbooks & Grimoires */}
+        <group position={[0.02, 2.48, 0]}>
+          <mesh castShadow position={[0, 0.22, -0.2]}>
+            <boxGeometry args={[0.36, 0.44, 0.18]} />
+            <meshStandardMaterial color="#eab308" roughness={0.4} />
+          </mesh>
+          <mesh castShadow position={[0, 0.25, 0.2]}>
+            <boxGeometry args={[0.36, 0.5, 0.24]} />
+            <meshStandardMaterial color="#6366f1" roughness={0.4} />
           </mesh>
         </group>
 
         {/* Floating Glowing Tech Rune */}
-        <group ref={runeRef} position={[0.55, 1.8, 0]}>
+        <group ref={runeRef} position={[0.45, 1.8, 0]}>
           <mesh castShadow>
             <octahedronGeometry args={[0.22]} />
             <meshStandardMaterial color="#c084fc" emissive="#9333ea" emissiveIntensity={2.0} roughness={0.1} />

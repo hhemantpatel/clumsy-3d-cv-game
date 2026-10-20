@@ -13,29 +13,32 @@ export const RecruiterCVModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-stone-950/70 backdrop-blur-md animate-in fade-in duration-200 select-none">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-stone-950/70 backdrop-blur-md animate-in fade-in duration-200">
       {/* Click outside to close backdrop */}
-      <div className="absolute inset-0" onClick={closeModal} />
+      <div className="absolute inset-0 print-hidden" onClick={closeModal} />
 
       {/* Dark Saddle Leather & Brass Folio Outer Casing */}
-      <div className="relative z-10 w-full max-w-4xl max-h-[92vh] bg-[#2a170e] rounded-3xl p-3 sm:p-5 border-4 border-[#5c2b14] shadow-[0_30px_70px_rgba(0,0,0,0.7)] flex flex-col font-sans select-none">
+      <div
+        id="recruiter-cv-folio"
+        className="relative z-10 w-full max-w-4xl max-h-[92vh] bg-[#2a170e] rounded-3xl p-3 sm:p-5 border-4 border-[#5c2b14] shadow-[0_30px_70px_rgba(0,0,0,0.7)] flex flex-col font-sans"
+      >
         {/* Brass Corner Brackets */}
-        <div className="absolute top-2 left-2 w-5 h-5 border-t-2 border-l-2 border-amber-500/80 pointer-events-none" />
-        <div className="absolute top-2 right-2 w-5 h-5 border-t-2 border-r-2 border-amber-500/80 pointer-events-none" />
-        <div className="absolute bottom-2 left-2 w-5 h-5 border-b-2 border-l-2 border-amber-500/80 pointer-events-none" />
-        <div className="absolute bottom-2 right-2 w-5 h-5 border-b-2 border-r-2 border-amber-500/80 pointer-events-none" />
+        <div className="absolute top-2 left-2 w-5 h-5 border-t-2 border-l-2 border-amber-500/80 pointer-events-none print-hidden" />
+        <div className="absolute top-2 right-2 w-5 h-5 border-t-2 border-r-2 border-amber-500/80 pointer-events-none print-hidden" />
+        <div className="absolute bottom-2 left-2 w-5 h-5 border-b-2 border-l-2 border-amber-500/80 pointer-events-none print-hidden" />
+        <div className="absolute bottom-2 right-2 w-5 h-5 border-b-2 border-r-2 border-amber-500/80 pointer-events-none print-hidden" />
 
         {/* Tactile Crimson Wax Seal Close Button */}
         <button
           onClick={closeModal}
-          className="absolute -top-3.5 -right-3.5 z-30 w-10 h-10 rounded-full bg-[#dc2626] hover:bg-[#b91c1c] text-white border-b-4 border-[#991b1b] active:border-b-0 active:translate-y-1 shadow-xl flex items-center justify-center cursor-pointer transition-all"
+          className="absolute -top-3.5 -right-3.5 z-30 w-10 h-10 rounded-full bg-[#dc2626] hover:bg-[#b91c1c] text-white border-b-4 border-[#991b1b] active:border-b-0 active:translate-y-1 shadow-xl flex items-center justify-center cursor-pointer transition-all print-hidden"
           title="Close [ESC]"
         >
           <X className="w-5 h-5 stroke-[3]" />
         </button>
 
         {/* Header Stamped Banner Plate */}
-        <div className="bg-gradient-to-r from-[#381e12] via-[#4a2617] to-[#381e12] rounded-2xl p-3.5 sm:px-6 mb-3 border border-[#6b3519] shadow-inner flex flex-col sm:flex-row items-center justify-between gap-3 text-amber-100 shrink-0">
+        <div className="bg-gradient-to-r from-[#381e12] via-[#4a2617] to-[#381e12] rounded-2xl p-3.5 sm:px-6 mb-3 border border-[#6b3519] shadow-inner flex flex-col sm:flex-row items-center justify-between gap-3 text-amber-100 shrink-0 print-hidden">
           <div className="flex items-center gap-3.5">
             <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 via-amber-600 to-amber-800 border-2 border-amber-300 shadow-md flex items-center justify-center text-amber-950 shrink-0">
               <Award className="w-6 h-6 stroke-[2.5]" />
@@ -69,7 +72,10 @@ export const RecruiterCVModal: React.FC = () => {
         </div>
 
         {/* Printable Resume Content (Warm Parchment in Web View, Crisp Clean in Print Mode) */}
-        <div className="relative flex-1 bg-[#fbf7ee] rounded-2xl p-6 sm:p-8 overflow-y-auto space-y-8 border border-[#dfceb5] shadow-inner text-[#451a03] print:bg-white print:p-0 print:text-black">
+        <div
+          id="recruiter-cv-dossier"
+          className="relative flex-1 bg-[#fbf7ee] rounded-2xl p-6 sm:p-8 overflow-y-auto space-y-8 border border-[#dfceb5] shadow-inner text-[#451a03] select-text print:bg-white print:p-0 print:text-black print:overflow-visible"
+        >
           {/* Subtle Draft Dot Texture */}
           <div
             className="absolute inset-0 rounded-2xl pointer-events-none opacity-25"
@@ -131,7 +137,7 @@ export const RecruiterCVModal: React.FC = () => {
                 className="flex items-center gap-1 text-[#0284c7] hover:text-[#0369a1] transition"
               >
                 <Linkedin className="w-3.5 h-3.5" />
-                <span>linkedin.com/in/hemant-patel</span>
+                <span>linkedin.com/in/hemant-patel-992753369</span>
               </a>
             </div>
 

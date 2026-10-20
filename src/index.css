@@ -35,3 +35,47 @@ html, body, #root {
   overflow: hidden;
   touch-action: none;
 }
+
+/* Crisp Clean Print Styles for Recruiter Dossier Export */
+@media print {
+  html, body, #root {
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    touch-action: auto !important;
+  }
+
+  canvas,
+  .print-hidden,
+  button,
+  [role="banner"] {
+    display: none !important;
+  }
+
+  /* Make fixed modal wrapper flow naturally on printed page */
+  .fixed.inset-0 {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+  }
+
+  #recruiter-cv-folio {
+    box-shadow: none !important;
+    border: none !important;
+    background: transparent !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    padding: 0 !important;
+  }
+
+  #recruiter-cv-dossier {
+    background: #ffffff !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    color: #111827 !important;
+    overflow: visible !important;
+  }
+}

@@ -53,20 +53,20 @@ export const GameCanvas: React.FC = () => {
         {/* 1. Natural Garden Environment Lighting */}
         <Environment preset="forest" environmentIntensity={0.25} />
 
-        {/* 2. Soft Natural Warm Sunlight & Shadows (Optimized 1024x1024 shadow map) */}
+        {/* 2. Soft Natural Warm Sunlight & Shadows (Sun direction aligned with SkyDome visible sun [65, 80, -60]) */}
         <directionalLight
           castShadow
-          position={[-14, 24, 18]}
-          intensity={1.3}
+          position={[26, 32, -24]}
+          intensity={1.35}
           color="#fef9c3"
           shadow-mapSize-width={1024}
           shadow-mapSize-height={1024}
           shadow-camera-near={1.0}
-          shadow-camera-far={65}
-          shadow-camera-left={-20}
-          shadow-camera-right={20}
-          shadow-camera-top={20}
-          shadow-camera-bottom={-20}
+          shadow-camera-far={75}
+          shadow-camera-left={-22}
+          shadow-camera-right={22}
+          shadow-camera-top={22}
+          shadow-camera-bottom={-22}
           shadow-bias={-0.0001}
           shadow-normalBias={0.035}
         />
@@ -113,9 +113,9 @@ export const GameCanvas: React.FC = () => {
         {/* 7. Lightweight High-Performance Post-Processing */}
         <EffectComposer multisampling={4}>
           <Bloom
-            luminanceThreshold={1.15}
-            luminanceSmoothing={0.1}
-            intensity={0.6}
+            luminanceThreshold={0.88}
+            luminanceSmoothing={0.18}
+            intensity={0.45}
             radius={0.5}
           />
           <HueSaturation saturation={0.15} />

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { GameContextType, ModalType } from '../types/game';
 import { soundManager } from '../utils/audio';
 
@@ -53,6 +53,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     (window as any).__closeModal = closeModal;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
       if (!hasStarted && (e.key === 'Enter' || e.key === ' ')) {
         startGame();
         return;
@@ -67,28 +70,49 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [hasStarted, startGame, activeModal, nearbyZone, openModal, closeModal]);
 
+  const contextValue = useMemo(
+    () => ({
+      hasStarted,
+      startGame,
+      activeModal,
+      openModal,
+      closeModal,
+      isInsideHouse,
+      setIsInsideHouse,
+      isMuted,
+      toggleMute,
+      unlockAudio,
+      nearbyZone,
+      setNearbyZone,
+      moveInput,
+      setMoveInput,
+      teleportTarget,
+      triggerTeleport,
+      clearTeleport,
+    }),
+    [
+      hasStarted,
+      startGame,
+      activeModal,
+      openModal,
+      closeModal,
+      isInsideHouse,
+      setIsInsideHouse,
+      isMuted,
+      toggleMute,
+      unlockAudio,
+      nearbyZone,
+      setNearbyZone,
+      moveInput,
+      setMoveInput,
+      teleportTarget,
+      triggerTeleport,
+      clearTeleport,
+    ]
+  );
+
   return (
-    <GameContext.Provider
-      value={{
-        hasStarted,
-        startGame,
-        activeModal,
-        openModal,
-        closeModal,
-        isInsideHouse,
-        setIsInsideHouse,
-        isMuted,
-        toggleMute,
-        unlockAudio,
-        nearbyZone,
-        setNearbyZone,
-        moveInput,
-        setMoveInput,
-        teleportTarget,
-        triggerTeleport,
-        clearTeleport,
-      }}
-    >
+    <GameContext.Provider value={contextValue}>
       {children}
     </GameContext.Provider>
   );

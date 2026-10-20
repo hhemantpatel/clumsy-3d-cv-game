@@ -23,7 +23,7 @@ export const HUD: React.FC = () => {
   };
 
   const handleResetCamera = () => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }));
+    window.dispatchEvent(new CustomEvent('reset-camera'));
   };
 
   return (

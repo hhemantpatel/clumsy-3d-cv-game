@@ -48,7 +48,7 @@ export const Character: React.FC<CharacterProps> = ({ engine }) => {
   const leftEyeRef = useRef<THREE.Mesh>(null);
   const rightEyeRef = useRef<THREE.Mesh>(null);
 
-  const { hasStarted, setIsInsideHouse, setNearbyZone, moveInput, teleportTarget, clearTeleport } = useGame();
+  const { hasStarted, activeModal, setIsInsideHouse, setNearbyZone, moveInput, teleportTarget, clearTeleport } = useGame();
 
   const keysRef = useRef<{ [key: string]: boolean }>({});
   const lastStumbleSound = useRef<number>(0);
@@ -71,29 +71,54 @@ export const Character: React.FC<CharacterProps> = ({ engine }) => {
   const tapTurnRef = useRef<number>(0);
 
   useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) => {
+      if (!target) return false;
+      const el = target as HTMLElement;
+      return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore character movement when any modal is open or user is typing
+      if (activeModal || isTypingTarget(e.target)) return;
+
+      const code = e.code;
       const key = e.key.toLowerCase();
+
+      const isA = code === 'KeyA' || key === 'a' || code === 'ArrowLeft' || key === 'arrowleft';
+      const isD = code === 'KeyD' || key === 'd' || code === 'ArrowRight' || key === 'arrowright';
+
       // On fresh key press (initial tap), queue a clean 10° (0.174 rad) incremental turn
-      if (!keysRef.current[key]) {
-        if (key === 'a' || key === 'arrowleft') {
+      if (!keysRef.current[code] && !keysRef.current[key]) {
+        if (isA) {
           tapTurnRef.current -= 0.174; // -10 degrees per click
-        } else if (key === 'd' || key === 'arrowright') {
+        } else if (isD) {
           tapTurnRef.current += 0.174; // +10 degrees per click
         }
       }
+      keysRef.current[code] = true;
       keysRef.current[key] = true;
     };
+
     const handleKeyUp = (e: KeyboardEvent) => {
+      keysRef.current[e.code] = false;
       keysRef.current[e.key.toLowerCase()] = false;
+    };
+
+    // Reset keys on window blur so keys don't stick during Alt-Tab
+    const handleBlur = () => {
+      keysRef.current = {};
+      tapTurnRef.current = 0;
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
     };
-  }, []);
+  }, [activeModal]);
 
   useFrame(({ camera }, delta) => {
     if (!engine || !groupRef.current) return;
@@ -110,12 +135,12 @@ export const Character: React.FC<CharacterProps> = ({ engine }) => {
     let throttle = 0;
     let steer = 0;
 
-    if (hasStarted) {
+    if (hasStarted && !activeModal) {
       const keys = keysRef.current;
-      if (keys['w'] || keys['arrowup']) throttle += 1;
-      if (keys['s'] || keys['arrowdown']) throttle -= 1;
-      if (keys['a'] || keys['arrowleft']) steer -= 1;
-      if (keys['d'] || keys['arrowright']) steer += 1;
+      if (keys['KeyW'] || keys['w'] || keys['ArrowUp'] || keys['arrowup']) throttle += 1;
+      if (keys['KeyS'] || keys['s'] || keys['ArrowDown'] || keys['arrowdown']) throttle -= 1;
+      if (keys['KeyA'] || keys['a'] || keys['ArrowLeft'] || keys['arrowleft']) steer -= 1;
+      if (keys['KeyD'] || keys['d'] || keys['ArrowRight'] || keys['arrowright']) steer += 1;
 
       // Mobile touch input integration (x: steer left/right, z: forward/backward)
       steer += moveInput.x;
@@ -124,7 +149,7 @@ export const Character: React.FC<CharacterProps> = ({ engine }) => {
       tapTurnRef.current = 0;
     }
 
-    const isRunning = keysRef.current['shift'] === true;
+    const isRunning = keysRef.current['ShiftLeft'] || keysRef.current['ShiftRight'] || keysRef.current['shift'] === true;
 
     // Apply any 10-degree tap turn impulse from keyboard click
     if (tapTurnRef.current !== 0) {
@@ -554,6 +579,12 @@ export const Character: React.FC<CharacterProps> = ({ engine }) => {
               <mesh position={[0.16, -0.06, -0.01]}>
                 <circleGeometry args={[0.035, 16]} />
                 <meshBasicMaterial color="#f87171" transparent opacity={0.45} />
+              </mesh>
+
+              {/* Subtle Warm Smile */}
+              <mesh position={[0, -0.07, 0.02]} rotation={[0, 0, Math.PI]}>
+                <torusGeometry args={[0.035, 0.008, 6, 12, Math.PI * 0.7]} />
+                <meshStandardMaterial color="#7c2d12" roughness={0.6} />
               </mesh>
             </group>
           </group>

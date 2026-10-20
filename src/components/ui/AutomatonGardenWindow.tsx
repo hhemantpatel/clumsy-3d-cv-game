@@ -17,6 +17,8 @@ export const AutomatonGardenWindow: React.FC<AutomatonGardenWindowProps> = ({ on
     speed,
     logs,
     missionCleared,
+    selectedSeed,
+    setSelectedSeed,
     setCode,
     setSpeed,
     runScript,
@@ -30,10 +32,10 @@ export const AutomatonGardenWindow: React.FC<AutomatonGardenWindowProps> = ({ on
   } = useGarden();
 
   // Floating Window Drag & Resize State
-  const defaultWidth = Math.min(580, window.innerWidth - 40);
-  const defaultHeight = Math.min(650, window.innerHeight - 80);
-  const defaultX = Math.max(20, window.innerWidth - defaultWidth - 25);
-  const defaultY = 30;
+  const defaultWidth = Math.max(320, Math.min(580, window.innerWidth - 24));
+  const defaultHeight = Math.max(320, Math.min(650, window.innerHeight - 60));
+  const defaultX = Math.max(12, window.innerWidth - defaultWidth - 20);
+  const defaultY = 24;
 
   const [position, setPosition] = useState({ x: defaultX, y: defaultY });
   const [size, setSize] = useState({ width: defaultWidth, height: defaultHeight });
@@ -93,8 +95,8 @@ export const AutomatonGardenWindow: React.FC<AutomatonGardenWindowProps> = ({ on
       if (resizeStartRef.current) {
         const dx = clientX - resizeStartRef.current.startX;
         const dy = clientY - resizeStartRef.current.startY;
-        const nextW = Math.max(380, Math.min(window.innerWidth - 30, resizeStartRef.current.initW + dx));
-        const nextH = Math.max(280, Math.min(window.innerHeight - 30, resizeStartRef.current.initH + dy));
+        const nextW = Math.max(300, Math.min(window.innerWidth - 20, resizeStartRef.current.initW + dx));
+        const nextH = Math.max(260, Math.min(window.innerHeight - 20, resizeStartRef.current.initH + dy));
         setSize({ width: nextW, height: nextH });
       }
     };
@@ -117,7 +119,7 @@ export const AutomatonGardenWindow: React.FC<AutomatonGardenWindowProps> = ({ on
     };
   }, []);
 
-  // Handle Tab key in editor
+  // Handle Tab key in editor & allow Escape to unfocus
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Tab') {
       e.preventDefault();
@@ -128,6 +130,8 @@ export const AutomatonGardenWindow: React.FC<AutomatonGardenWindowProps> = ({ on
       textarea.value = val.substring(0, start) + '    ' + val.substring(end);
       textarea.selectionStart = textarea.selectionEnd = start + 4;
       setCode(textarea.value);
+    } else if (e.key === 'Escape') {
+      e.currentTarget.blur();
     }
   };
 
@@ -328,11 +332,27 @@ export const AutomatonGardenWindow: React.FC<AutomatonGardenWindowProps> = ({ on
               </div>
 
               <div className="flex items-center gap-1">
+                {/* Seed Type Selector */}
+                <div className="flex items-center bg-[#130a04] p-0.5 rounded border border-[#4a2614] mr-1">
+                  {(['wheat', 'carrot', 'pumpkin'] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setSelectedSeed(s)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
+                        selectedSeed === s ? 'bg-[#b45309] text-white font-bold' : 'text-stone-400 hover:text-stone-200'
+                      }`}
+                      title={`Select ${s} seed`}
+                    >
+                      {s === 'wheat' ? '🌾' : s === 'carrot' ? '🥕' : '🎃'}
+                    </button>
+                  ))}
+                </div>
+
                 <button
-                  onClick={() => manualPlant('wheat')}
+                  onClick={() => manualPlant(selectedSeed)}
                   className="px-2 py-1 rounded bg-amber-900/60 hover:bg-amber-800 border border-amber-600/50 text-[10px] text-amber-200 font-bold cursor-pointer"
                 >
-                  🌾 Plant
+                  🌱 Plant
                 </button>
                 <button
                   onClick={manualWater}

@@ -168,13 +168,17 @@ impl PhysicsEngine {
         // Garden Fountain / Rock (X: 6.5, Z: -8.0)
         colliders.push(AABB::new(5.8, -8.7, 7.2, -7.3));
 
-        // Badminton Court Net & Posts (Centered at X: 6.8, Z: 5.2)
-        // Left Net Post
-        colliders.push(AABB::new(4.5, 4.9, 5.1, 5.5));
-        // Right Net Post
-        colliders.push(AABB::new(8.5, 4.9, 9.1, 5.5));
-        // Net Mesh Barrier
-        colliders.push(AABB::new(5.0, 5.05, 8.6, 5.35));
+        // Automaton Garden Planter Box & Potting Bench (Centered at X: 6.8, Z: 5.2)
+        // Planter North Rim
+        colliders.push(AABB::new(4.7, 1.95, 8.9, 2.25));
+        // Planter South Rim
+        colliders.push(AABB::new(4.7, 8.15, 8.9, 8.45));
+        // Planter West Rim
+        colliders.push(AABB::new(4.65, 2.1, 4.85, 8.3));
+        // Planter East Rim
+        colliders.push(AABB::new(8.75, 2.1, 8.95, 8.3));
+        // Garden Potting Workbench
+        colliders.push(AABB::new(9.05, 4.3, 9.65, 6.1));
 
         // Interaction Triggers
         let triggers = vec![
@@ -332,16 +336,17 @@ impl PhysicsEngine {
             self.skid_intensity = (self.skid_intensity - 4.5 * dt).max(0.0);
         }
 
-        // Apply stumble recoil if active
+        // Apply stumble recoil if active (frame-rate independent exponential damping)
         if self.stumble_timer > 0.0 {
             self.stumble_timer -= dt;
             self.player_vx += self.stumble_vx * dt * 4.0;
             self.player_vz += self.stumble_vz * dt * 4.0;
-            self.stumble_vx *= 0.85;
-            self.stumble_vz *= 0.85;
+            let decay = (-9.0 * dt).exp();
+            self.stumble_vx *= decay;
+            self.stumble_vz *= decay;
             self.stumble_intensity = (self.stumble_timer / 0.45).clamp(0.0, 1.0);
         } else {
-            self.stumble_intensity *= 0.9;
+            self.stumble_intensity *= (-6.0 * dt).exp();
         }
 
         // Tentative new position
@@ -358,24 +363,38 @@ impl PhysicsEngine {
                 new_x += dx;
                 new_z += dz;
 
-                // If moving fast into a wall, trigger a comedic stumble
-                let cur_speed = (self.player_vx * self.player_vx + self.player_vz * self.player_vz).sqrt();
-                if cur_speed > 2.0 && self.stumble_timer <= 0.0 {
-                    hit_hard = true;
-                    bounce_nx = -dx;
-                    bounce_nz = -dz;
+                let push_len = (dx * dx + dz * dz).sqrt();
+                if push_len > 1e-4 {
+                    let nx = dx / push_len;
+                    let nz = dz / push_len;
+
+                    // Compute velocity component along the collision normal
+                    let v_dot_n = self.player_vx * nx + self.player_vz * nz;
+
+                    // If moving into the wall, cancel normal velocity so player slides smoothly
+                    if v_dot_n < 0.0 {
+                        self.player_vx -= v_dot_n * nx;
+                        self.player_vz -= v_dot_n * nz;
+
+                        // Only stumble if moving fast directly into the obstacle (not sliding along it)
+                        if (-v_dot_n) > 2.2 && self.stumble_timer <= 0.0 {
+                            hit_hard = true;
+                            bounce_nx = nx;
+                            bounce_nz = nz;
+                        }
+                    }
                 }
             }
         }
 
-        // Trigger stumble physics on impactful collision
+        // Trigger stumble physics on direct impactful head-on collision
         if hit_hard {
             self.stumble_timer = 0.45;
             self.stumble_intensity = 1.0;
-            self.stumble_vx = bounce_nx * 3.5;
-            self.stumble_vz = bounce_nz * 3.5;
-            self.player_vx = -self.player_vx * 0.4;
-            self.player_vz = -self.player_vz * 0.4;
+            self.stumble_vx = bounce_nx * 3.2;
+            self.stumble_vz = bounce_nz * 3.2;
+            self.player_vx = -self.player_vx * 0.3;
+            self.player_vz = -self.player_vz * 0.3;
         }
 
         self.player_x = new_x;
@@ -470,11 +489,12 @@ impl PhysicsEngine {
             p.rot_y += dt * 0.8;
             p.rot_z += dt * 1.5;
 
-            // Boundary wrapping
+            // Boundary wrapping: naturally disperse respawned leaves across the entire yard
             if p.y < 0.1 {
                 p.y = 5.5 + ((p.sway_phase.sin() + 1.0) * 1.5);
-                p.x = 11.5 * ((wind_t + p.sway_phase).cos());
-                p.z = 11.5 * ((wind_t + p.sway_phase).sin());
+                let radius = 2.5 + ((p.sway_phase * 1.618).sin().abs() * 9.5);
+                p.x = radius * ((wind_t + p.sway_phase).cos());
+                p.z = radius * ((wind_t + p.sway_phase).sin());
             }
             if p.x < -12.5 { p.x = 12.5; }
             if p.x > 12.5 { p.x = -12.5; }
@@ -519,6 +539,15 @@ impl PhysicsEngine {
 
     pub fn get_particles_data(&self) -> Vec<f32> {
         self.particle_buffer.clone()
+    }
+
+    /// Zero-allocation pointer to the linear memory particle buffer
+    pub fn get_particles_ptr(&self) -> *const f32 {
+        self.particle_buffer.as_ptr()
+    }
+
+    pub fn get_particles_len(&self) -> usize {
+        self.particle_buffer.len()
     }
 
     pub fn get_particle_count(&self) -> usize {
