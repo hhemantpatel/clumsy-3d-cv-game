@@ -1,22 +1,39 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { useGame } from '../../context/GameContext';
-import { AutomatonGardenWindow } from './AutomatonGardenWindow';
-import { AboutModal } from './modals/AboutModal';
-import { ExperienceModal } from './modals/ExperienceModal';
-import { ProjectsModal } from './modals/ProjectsModal';
-import { SkillsModal } from './modals/SkillsModal';
-import { ContactModal } from './modals/ContactModal';
-import { CatModal } from './modals/CatModal';
 
-/** Routes the active zone to its CV menu. Every menu is built on the cozy kit in ./kit. */
+const AutomatonGardenWindow = lazy(() =>
+  import('./AutomatonGardenWindow').then((m) => ({ default: m.AutomatonGardenWindow }))
+);
+const AboutModal = lazy(() => import('./modals/AboutModal').then((m) => ({ default: m.AboutModal })));
+const ExperienceModal = lazy(() => import('./modals/ExperienceModal').then((m) => ({ default: m.ExperienceModal })));
+const ProjectsModal = lazy(() => import('./modals/ProjectsModal').then((m) => ({ default: m.ProjectsModal })));
+const SkillsModal = lazy(() => import('./modals/SkillsModal').then((m) => ({ default: m.SkillsModal })));
+const ContactModal = lazy(() => import('./modals/ContactModal').then((m) => ({ default: m.ContactModal })));
+const CatModal = lazy(() => import('./modals/CatModal').then((m) => ({ default: m.CatModal })));
+const RecruiterCVModal = lazy(() => import('./RecruiterCVModal').then((m) => ({ default: m.RecruiterCVModal })));
+
+/** Routes the active zone to its CV menu. Every menu is lazily loaded on demand. */
 export const Modals: React.FC = () => {
   const { activeModal, closeModal } = useGame();
 
-  if (!activeModal || activeModal === 'recruiter') return null;
+  if (!activeModal) return null;
 
   // The garden console floats over the live 3D farm, without a backdrop
   if (activeModal === 'badminton') {
-    return <AutomatonGardenWindow onClose={closeModal} />;
+    return (
+      <Suspense fallback={null}>
+        <AutomatonGardenWindow onClose={closeModal} />
+      </Suspense>
+    );
+  }
+
+  // The full-page recruiter resume modal
+  if (activeModal === 'recruiter') {
+    return (
+      <Suspense fallback={null}>
+        <RecruiterCVModal />
+      </Suspense>
+    );
   }
 
   return (
@@ -24,12 +41,14 @@ export const Modals: React.FC = () => {
       <div className="fixed inset-0" onClick={closeModal} aria-hidden />
 
       <div className="relative z-10 w-full flex items-center justify-center my-auto">
-        {activeModal === 'about' && <AboutModal onClose={closeModal} />}
-        {activeModal === 'experience' && <ExperienceModal onClose={closeModal} />}
-        {activeModal === 'projects' && <ProjectsModal onClose={closeModal} />}
-        {activeModal === 'skills' && <SkillsModal onClose={closeModal} />}
-        {activeModal === 'contact' && <ContactModal onClose={closeModal} />}
-        {activeModal === 'bed' && <CatModal onClose={closeModal} />}
+        <Suspense fallback={null}>
+          {activeModal === 'about' && <AboutModal onClose={closeModal} />}
+          {activeModal === 'experience' && <ExperienceModal onClose={closeModal} />}
+          {activeModal === 'projects' && <ProjectsModal onClose={closeModal} />}
+          {activeModal === 'skills' && <SkillsModal onClose={closeModal} />}
+          {activeModal === 'contact' && <ContactModal onClose={closeModal} />}
+          {activeModal === 'bed' && <CatModal onClose={closeModal} />}
+        </Suspense>
       </div>
     </div>
   );

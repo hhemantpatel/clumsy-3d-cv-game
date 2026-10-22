@@ -5,7 +5,6 @@ import { GameCanvas } from './components/game/GameCanvas';
 import { HUD } from './components/ui/HUD';
 import { StartScreen } from './components/ui/StartScreen';
 import { Modals } from './components/ui/Modals';
-import { RecruiterCVModal } from './components/ui/RecruiterCVModal';
 import { MobileControls } from './components/ui/MobileControls';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
@@ -22,7 +21,6 @@ export const App: React.FC = () => {
             <StartScreen />
             <HUD />
             <Modals />
-            <RecruiterCVModal />
             <MobileControls />
           </div>
         </GardenProvider>

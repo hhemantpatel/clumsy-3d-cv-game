@@ -97,9 +97,16 @@ function createGrassMaterial(): THREE.MeshLambertMaterial {
   return mat;
 }
 
+function getGrassCellSize(): number {
+  if (typeof window === 'undefined') return 0.155;
+  const isMobileScreen = window.innerWidth < 768;
+  const isTouchDevice = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1 && window.innerWidth < 1024;
+  return isMobileScreen || isTouchDevice ? 0.22 : 0.155;
+}
+
 function buildGrass(): THREE.InstancedMesh {
   const rng = makeRng(42);
-  const cell = 0.155;
+  const cell = getGrassCellSize();
   const span = FENCE - 0.25;
   const cells = Math.floor((span * 2) / cell);
   const matrices: THREE.Matrix4[] = [];

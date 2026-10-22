@@ -4,6 +4,10 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { PhysicsEngine } from '../../wasm/pkg/game_engine_wasm';
 import { useGame } from '../../context/GameContext';
 
+// Reusable module-level scratch objects to guarantee ZERO heap allocations in useFrame
+const GARDEN_TARGET = new THREE.Vector3(6.8, 0.45, 5.2);
+const _charTarget = new THREE.Vector3();
+
 interface CameraControllerProps {
   engine: PhysicsEngine | null;
 }
@@ -137,18 +141,16 @@ export const CameraController: React.FC<CameraControllerProps> = ({ engine }) =>
 
     if (activeModal === 'badminton') {
       // Smoothly focus camera on the 3D Automaton Garden bed
-      const gardenTarget = new THREE.Vector3(6.8, 0.45, 5.2);
-
       // If camera was far away (e.g. inside cottage), transition cleanly to the garden yard
-      if (state.targetPos.distanceTo(gardenTarget) > 4.0) {
-        state.targetPos.copy(gardenTarget);
+      if (state.targetPos.distanceTo(GARDEN_TARGET) > 4.0) {
+        state.targetPos.copy(GARDEN_TARGET);
         state.theta = -Math.PI * 0.68;
         state.phi = Math.PI / 3.2;
         state.radius = 6.5;
         state.targetRadius = 6.5;
         state.targetPhi = Math.PI / 3.2;
       } else {
-        state.targetPos.lerp(gardenTarget, delta * 6.0);
+        state.targetPos.lerp(GARDEN_TARGET, delta * 6.0);
       }
 
       const idealGardenTheta = -Math.PI * 0.68 + state.userYawOffset;
@@ -172,12 +174,12 @@ export const CameraController: React.FC<CameraControllerProps> = ({ engine }) =>
       const isWalking = engine.is_walking();
       const speed = engine.get_player_speed();
 
-      const charTarget = new THREE.Vector3(px, py + 1.25, pz);
-      if (state.targetPos.distanceTo(charTarget) > 3.5) {
-        state.targetPos.copy(charTarget);
+      _charTarget.set(px, py + 1.25, pz);
+      if (state.targetPos.distanceTo(_charTarget) > 3.5) {
+        state.targetPos.copy(_charTarget);
         state.theta = rot - Math.PI;
       } else {
-        state.targetPos.lerp(charTarget, delta * 6.0);
+        state.targetPos.lerp(_charTarget, delta * 6.0);
       }
 
       // Ideal camera angle directly behind the player's back

@@ -168,65 +168,73 @@ export const Yard: React.FC<YardProps> = ({ engine }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Floating garden fireflies with breathing luminescence
+// Floating garden fireflies with breathing luminescence (batched in 1 draw call)
 // ---------------------------------------------------------------------------
 const FIREFLY_SEEDS: { x0: number; y0: number; z0: number; speed: number; phase: number }[] = [
   // Trellis gate cluster
   { x0: -0.8, y0: 1.4, z0: 11.5, speed: 1.1, phase: 0.2 },
-  { x0: 0.9, y0: 1.8, z0: 11.7, speed: 0.9, phase: 1.8 },
-  { x0: -0.3, y0: 1.2, z0: 10.8, speed: 1.3, phase: 3.1 },
-  { x0: 0.5, y0: 2.1, z0: 12.1, speed: 1.0, phase: 4.7 },
+  { x0: 0.8, y0: 1.8, z0: 11.7, speed: 0.9, phase: 1.8 },
 
   // Porch & front garden cluster
   { x0: -2.2, y0: 1.1, z0: -0.2, speed: 1.2, phase: 0.5 },
   { x0: 2.3, y0: 1.3, z0: -0.4, speed: 0.8, phase: 2.2 },
-  { x0: -1.2, y0: 0.9, z0: 1.4, speed: 1.1, phase: 3.9 },
-  { x0: 1.4, y0: 1.5, z0: 2.1, speed: 1.4, phase: 5.1 },
 
   // Cherry tree & flowers cluster
-  { x0: -6.2, y0: 1.6, z0: 9.8, speed: 0.95, phase: 1.1 },
-  { x0: -5.4, y0: 1.2, z0: 8.6, speed: 1.15, phase: 2.8 },
-  { x0: -8.8, y0: 1.5, z0: -3.6, speed: 1.05, phase: 4.3 },
-  { x0: 8.9, y0: 1.4, z0: -3.2, speed: 1.25, phase: 0.9 },
+  { x0: -5.8, y0: 1.4, z0: 9.2, speed: 1.05, phase: 3.4 },
+  { x0: -8.5, y0: 1.5, z0: -3.5, speed: 1.15, phase: 4.8 },
 ];
 
+const _fireflyMatrix = new THREE.Matrix4();
+const _fireflyPos = new THREE.Vector3();
+const _fireflyScale = new THREE.Vector3();
+const _fireflyQuat = new THREE.Quaternion();
+
 export const Fireflies: React.FC = () => {
-  const groupRef = React.useRef<THREE.Group>(null);
+  const meshRef = React.useRef<THREE.InstancedMesh>(null);
   const geo = useMemo(() => new THREE.SphereGeometry(0.045, 6, 5), []);
   const mat = useMemo(
     () => new THREE.MeshBasicMaterial({ color: '#fff677', transparent: true, opacity: 0.88, depthWrite: false }),
     []
   );
 
+  useEffect(() => () => {
+    geo.dispose();
+    mat.dispose();
+  }, [geo, mat]);
+
   useFrame((state) => {
-    const group = groupRef.current;
-    if (!group) return;
+    const mesh = meshRef.current;
+    if (!mesh) return;
     const t = state.clock.elapsedTime;
-    const children = group.children;
-    for (let i = 0; i < children.length; i++) {
+    const count = FIREFLY_SEEDS.length;
+
+    for (let i = 0; i < count; i++) {
       const s = FIREFLY_SEEDS[i];
-      const p = children[i];
       const time = t * s.speed + s.phase;
 
       // 3D gentle Lissajous drift
       const x = s.x0 + Math.sin(time * 0.8) * 0.35 + Math.cos(time * 0.3) * 0.15;
       const y = s.y0 + Math.sin(time * 1.2) * 0.22 + Math.cos(time * 0.6) * 0.12;
       const z = s.z0 + Math.cos(time * 0.7) * 0.35 + Math.sin(time * 0.4) * 0.15;
-      p.position.set(x, y, z);
+      _fireflyPos.set(x, y, z);
 
       // Breathing luminescence / pulse
       const pulse = Math.pow(Math.sin(time * 1.8), 4);
       const sc = 0.5 + 0.9 * pulse;
-      p.scale.setScalar(sc);
+      _fireflyScale.set(sc, sc, sc);
+
+      _fireflyMatrix.compose(_fireflyPos, _fireflyQuat, _fireflyScale);
+      mesh.setMatrixAt(i, _fireflyMatrix);
     }
+    mesh.instanceMatrix.needsUpdate = true;
   });
 
   return (
-    <group ref={groupRef}>
-      {FIREFLY_SEEDS.map((_, i) => (
-        <mesh key={i} geometry={geo} material={mat} />
-      ))}
-    </group>
+    <instancedMesh
+      ref={meshRef}
+      args={[geo, mat, FIREFLY_SEEDS.length]}
+      frustumCulled={false}
+    />
   );
 };
 

@@ -4,6 +4,7 @@ import { Environment, ContactShadows, Sparkles } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, HueSaturation } from '@react-three/postprocessing';
 import { SUN_POSITION, PALETTE } from './env/palette';
 import * as THREE from 'three';
+import { useGame } from '../../context/GameContext';
 import { getPhysicsEngine } from '../../wasm/engine';
 import { PhysicsEngine } from '../../wasm/pkg/game_engine_wasm';
 import { CameraController } from './CameraController';
@@ -19,6 +20,7 @@ import { Butterflies } from './Butterflies';
 
 export const GameCanvas: React.FC = () => {
   const [engine, setEngine] = useState<PhysicsEngine | null>(null);
+  const { activeModal } = useGame();
 
   useEffect(() => {
     let mounted = true;
@@ -36,6 +38,7 @@ export const GameCanvas: React.FC = () => {
     <div className="w-full h-full relative">
       <Canvas
         shadows="soft"
+        frameloop={activeModal && activeModal !== 'badminton' ? 'demand' : 'always'}
         dpr={[1, 1.5]}
         camera={{ position: [0, 11, 16], fov: 28, near: 0.1, far: 240 }}
         gl={{
@@ -62,8 +65,8 @@ export const GameCanvas: React.FC = () => {
           position={SUN_POSITION}
           intensity={2.2}
           color="#ffad5c"
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
+          shadow-mapSize-width={1024}
+          shadow-mapSize-height={1024}
           shadow-camera-near={1.0}
           shadow-camera-far={120}
           shadow-camera-left={-28}
@@ -113,8 +116,8 @@ export const GameCanvas: React.FC = () => {
         <Character engine={engine} />
         <CameraController engine={engine} />
 
-        {/* 7. Clean High-Performance Post-Processing (100% Sharp) */}
-        <EffectComposer multisampling={4}>
+        {/* 7. Clean High-Performance Post-Processing (multisampling={0} avoids 4x MSAA bandwidth overhead) */}
+        <EffectComposer multisampling={0}>
           <Bloom
             luminanceThreshold={0.85}
             luminanceSmoothing={0.18}

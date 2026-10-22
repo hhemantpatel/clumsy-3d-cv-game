@@ -957,6 +957,11 @@ function beamParts(b: (typeof BEAMS)[number]): Part[] {
 
 // Scratch objects for useFrame (no per-frame allocations)
 const _dir = new THREE.Vector3();
+const _smokeMatrix = new THREE.Matrix4();
+const _smokePos = new THREE.Vector3();
+const _smokeScale = new THREE.Vector3();
+const _smokeQuat = new THREE.Quaternion();
+const _smokeEuler = new THREE.Euler();
 
 function ccw(ax: number, az: number, bx: number, bz: number, cx: number, cz: number) {
   return (cz - az) * (bx - ax) > (bz - az) * (cx - ax);
@@ -991,7 +996,7 @@ export const House: React.FC<HouseProps> = ({ engine }) => {
   const decorGroups = useRef<(THREE.Group | null)[]>([null, null, null, null]);
   const beamGroups = useRef<(THREE.Group | null)[]>([null, null, null]);
   const roofRef = useRef<THREE.Group>(null);
-  const smokeRef = useRef<THREE.Group>(null);
+  const smokeRef = useRef<THREE.InstancedMesh>(null);
   const cutState = useRef<number[]>([1, 1, 1, 1]);
   const roofState = useRef(1);
 
@@ -1092,30 +1097,32 @@ export const House: React.FC<HouseProps> = ({ engine }) => {
       g.visible = show;
     }
 
-    // 4. Chimney smoke (buoyant tumbling cartoon cloud puffs).
+    // 4. Chimney smoke (buoyant tumbling cartoon cloud puffs batched in 1 InstancedMesh).
     const smoke = smokeRef.current;
     if (smoke && roof && roof.visible) {
       const t = state.clock.elapsedTime;
-      const puffs = smoke.children;
-      const numPuffs = puffs.length;
+      const numPuffs = 7;
       for (let i = 0; i < numPuffs; i++) {
         const o = (t * 0.28 + i / numPuffs) % 1;
-        const p = puffs[i];
         // Buoyant ascent: rises smoothly, decelerating gently
         const py = Math.pow(o, 0.82) * 3.2;
         // Breeze drift with gentle wobble
         const px = Math.sin(t * 1.6 + i * 1.4) * 0.18 * o + Math.pow(o, 1.3) * 0.95;
         const pz = Math.cos(t * 1.2 + i * 1.1) * 0.12 * o;
-        p.position.set(px, py, pz);
+        _smokePos.set(px, py, pz);
 
         // Chubby cartoon swell & pop: starts small, swells into chubby cloud, billows & pops
         const sc = Math.sin(Math.PI * Math.pow(o, 0.72)) * (0.42 + 0.88 * o);
-        p.scale.setScalar(Math.max(0.001, sc));
+        _smokeScale.setScalar(Math.max(0.001, sc));
 
         // Tumbling rotation
-        p.rotation.z = t * 0.4 + i * 0.8;
-        p.rotation.y = t * 0.25 + i * 1.1;
+        _smokeEuler.set(0, t * 0.25 + i * 1.1, t * 0.4 + i * 0.8);
+        _smokeQuat.setFromEuler(_smokeEuler);
+
+        _smokeMatrix.compose(_smokePos, _smokeQuat, _smokeScale);
+        smoke.setMatrixAt(i, _smokeMatrix);
       }
+      smoke.instanceMatrix.needsUpdate = true;
     }
   });
 
@@ -1156,11 +1163,12 @@ export const House: React.FC<HouseProps> = ({ engine }) => {
         <Merged set={built.roof} castShadow receiveShadow />
         <mesh geometry={built.gables} material={built.sidingMat} castShadow receiveShadow />
         <primitive object={built.shingles} />
-        <group ref={smokeRef} position={[CHIMNEY[0] - 0.16, 8.65, CHIMNEY[2]]}>
-          {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-            <mesh key={i} geometry={built.smokeGeo} material={built.smokeMat} />
-          ))}
-        </group>
+        <instancedMesh
+          ref={smokeRef}
+          position={[CHIMNEY[0] - 0.16, 8.65, CHIMNEY[2]]}
+          args={[built.smokeGeo, built.smokeMat, 7]}
+          frustumCulled={false}
+        />
       </group>
     </group>
   );
