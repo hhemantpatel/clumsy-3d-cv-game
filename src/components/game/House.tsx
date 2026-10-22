@@ -260,18 +260,41 @@ function windowParts(o: Opening): Part[] {
   const ft = 0.07;
   const mid = (o.b + o.t) / 2;
   const h = o.t - o.b;
-  // Frame (4 bars) + mullions
+
+  // Frame (4 outer bars) + mullions
   parts.push(box(o.w, ft, 0.12, C.trim, [o.c, o.t - ft / 2, 0.08]));
   parts.push(box(o.w, ft, 0.12, C.trim, [o.c, o.b + ft / 2, 0.08]));
   parts.push(box(ft, h, 0.12, C.trim, [o.c - o.w / 2 + ft / 2, mid, 0.08]));
   parts.push(box(ft, h, 0.12, C.trim, [o.c + o.w / 2 - ft / 2, mid, 0.08]));
   parts.push(box(0.045, h, 0.06, C.trim, [o.c, mid, 0.08]));
   parts.push(box(o.w, 0.045, 0.06, C.trim, [o.c, mid, 0.08]));
-  // Glass pane (cheap transparent standard material)
+
+  // Glass pane
   parts.push(box(o.w - 0.04, h - 0.04, 0.012, C.glass, [o.c, mid, 0.06], { m: 'glass' }));
-  // Exterior sill + head trim, interior stool
-  parts.push(box(o.w + 0.26, 0.06, 0.2, C.trim, [o.c, o.b - 0.03, HALF_T + 0.08]));
-  parts.push(box(o.w + 0.26, 0.1, 0.05, C.trim, [o.c, o.t + 0.05, HALF_T + 0.025]));
+
+  // Cozy warm interior golden-hour glow plane behind glass
+  parts.push(box(o.w - 0.1, h - 0.1, 0.006, '#ffd68a', [o.c, mid, -0.01], { m: 'glow', k: 1.15 }));
+
+  // Cozy gathered interior linen curtains (visible through glass)
+  const cw = (o.w - 0.12) * 0.36;
+  const curH = h * 0.88;
+  const curY = o.b + curH / 2 + 0.04;
+  for (const side of [-1, 1]) {
+    const curX = o.c + side * (o.w / 2 - cw / 2 - 0.05);
+    // Gathered drapery
+    parts.push(box(cw, curH, 0.022, '#fff6e8', [curX, curY, -HALF_T - 0.015]));
+    // Brass tieback sphere
+    parts.push(sph(0.032, C.brass, [curX - side * (cw / 2 - 0.02), curY - curH * 0.15, -HALF_T - 0.02], { m: 'metal', seg: 8 }));
+  }
+  // Thin brass curtain rod along the inside head
+  parts.push(box(o.w + 0.08, 0.018, 0.018, C.brass, [o.c, o.t - 0.03, -HALF_T - 0.02], { m: 'metal' }));
+
+  // Exterior chamfered sill + storybook arched pediment
+  parts.push(box(o.w + 0.32, 0.07, 0.22, C.trim, [o.c, o.b - 0.035, HALF_T + 0.085]));
+  // Arched wooden crown pediment above the window
+  parts.push(box(o.w + 0.32, 0.12, 0.07, C.trim, [o.c, o.t + 0.06, HALF_T + 0.03]));
+  // Subtle curved pediment apex
+  parts.push(box(o.w * 0.5, 0.06, 0.075, C.trim, [o.c, o.t + 0.13, HALF_T + 0.03]));
   parts.push(box(o.w + 0.1, 0.04, 0.12, C.trim, [o.c, o.b, -HALF_T - 0.04]));
 
   if (o.shutters) {
@@ -279,18 +302,20 @@ function windowParts(o: Opening): Part[] {
     for (const side of [-1, 1]) {
       const su = o.c + side * (o.w / 2 + 0.07 + sw / 2);
       parts.push(box(sw, h, 0.04, C.shutter, [su, mid, HALF_T + 0.045]));
-      for (let i = 0; i < 6; i++) {
-        const sy = o.b + 0.14 + (i * (h - 0.28)) / 5;
+      for (let i = 0; i < 5; i++) {
+        const sy = o.b + 0.16 + (i * (h - 0.32)) / 4;
         parts.push(box(sw - 0.09, 0.03, 0.02, C.shutterSlat, [su, sy, HALF_T + 0.072], { r: [-0.5, 0, 0] }));
       }
+      // Storybook diamond cutout on upper panel
+      parts.push(box(0.075, 0.075, 0.025, C.trim, [su, o.t - 0.24, HALF_T + 0.055], { r: [0, 0, Math.PI / 4] }));
     }
   }
 
   if (o.flowers) {
     const fy = o.b - 0.2;
     const fn = HALF_T + 0.17;
-    parts.push(box(o.w + 0.12, 0.24, 0.24, C.walnut, [o.c, fy, fn]));
-    parts.push(box(o.w + 0.16, 0.04, 0.27, C.oak, [o.c, fy + 0.12, fn]));
+    parts.push(box(o.w + 0.14, 0.24, 0.24, C.walnut, [o.c, fy, fn]));
+    parts.push(box(o.w + 0.18, 0.04, 0.27, C.oak, [o.c, fy + 0.12, fn]));
     const r = rng(Math.round(o.c * 100) + 5);
     const blooms = ['#e85d75', '#f4a259', '#f7d35c', '#b07bd8', '#ffffff', '#ef6f4c'];
     const count = Math.round(o.w / 0.2);
@@ -308,21 +333,54 @@ function windowParts(o: Opening): Part[] {
   return parts;
 }
 
-/** One door leaf in local space, hinge at origin, extending along dir (+1 / -1) on x. */
+/** One arched storybook door leaf with vertical cedar planks, wrought-iron strap hinges, clavos & brass knocker. */
 function doorLeaf(dir: number): Part[] {
   const w = 0.96;
   const cx = (dir * w) / 2;
   const h = 2.52;
   const y0 = 0.14;
-  return [
-    box(w, h, 0.06, C.door, [cx, y0 + h / 2, 0]),
-    box(w - 0.24, 0.85, 0.08, C.doorPanel, [cx, y0 + 0.62, 0]),
-    box(w - 0.24, 0.9, 0.08, C.doorPanel, [cx, y0 + 1.75, 0]),
-    box(w - 0.1, 0.06, 0.075, C.door, [cx, y0 + 1.18, 0]),
-    sph(0.04, C.brass, [dir * (w - 0.1), y0 + 1.08, 0.06], { m: 'metal', seg: 8 }),
-    sph(0.04, C.brass, [dir * (w - 0.1), y0 + 1.08, -0.06], { m: 'metal', seg: 8 }),
-    box(0.06, 0.18, 0.08, C.brass, [dir * (w - 0.1), y0 + 1.08, 0], { m: 'metal' }),
-  ];
+  const parts: Part[] = [];
+
+  // Vertical tongue-and-groove planks (4 planks per leaf with subtle v-joints)
+  const planks = 4;
+  const pw = (w - 0.04) / planks;
+  for (let i = 0; i < planks; i++) {
+    const px = cx - (dir * w) / 2 + dir * (0.02 + pw * (i + 0.5));
+    // Planks rise slightly toward the inner edge for an arched double-door silhouette
+    const archH = h - 0.08 * (planks - 1 - i);
+    parts.push(box(pw - 0.015, archH, 0.06, i % 2 === 0 ? C.door : C.doorPanel, [px, y0 + archH / 2, 0]));
+  }
+
+  // Horizontal structural cross-battens (top, middle, bottom)
+  for (const by of [y0 + 0.35, y0 + 1.25, y0 + 2.15]) {
+    parts.push(box(w - 0.08, 0.14, 0.075, C.walnut, [cx, by, 0]));
+  }
+
+  // Wrought-iron strap hinges spanning across the door with scrolled ends
+  for (const hy of [y0 + 0.45, y0 + 1.95]) {
+    const hw = w * 0.75;
+    const hx = cx - dir * (w / 2 - hw / 2 - 0.02);
+    // Hinge bar
+    parts.push(box(hw, 0.048, 0.082, C.iron, [hx, hy, 0], { m: 'metal' }));
+    // Curled scroll finial at the tip of the hinge strap
+    parts.push(torus(0.038, 0.014, C.iron, [hx + dir * (hw / 2 + 0.01), hy, 0.035], { m: 'metal', seg: 10 }));
+    // Hammered iron clavos (rivets) along the hinge strap
+    for (let k = 0; k < 3; k++) {
+      const rx = hx - dir * (hw / 2 - 0.08 - k * (hw / 3));
+      parts.push(sph(0.018, C.iron, [rx, hy, 0.045], { m: 'metal', seg: 6 }));
+      parts.push(sph(0.018, C.iron, [rx, hy, -0.045], { m: 'metal', seg: 6 }));
+    }
+  }
+
+  // Heavy brass ring knocker and escutcheon on each door leaf
+  const knockerX = dir * (w - 0.22);
+  const knockerY = y0 + 1.28;
+  parts.push(cyl(0.045, 0.045, 0.018, C.brass, [knockerX, knockerY, 0.045], { m: 'metal', r: [Math.PI / 2, 0, 0], seg: 10 }));
+  parts.push(torus(0.055, 0.014, C.brass, [knockerX, knockerY - 0.04, 0.052], { m: 'metal', seg: 12 }));
+  // Inside brass handle
+  parts.push(sph(0.04, C.brass, [dir * (w - 0.12), y0 + 1.15, -0.06], { m: 'metal', seg: 8 }));
+
+  return parts;
 }
 
 function lanternParts(u: number): Part[] {
@@ -373,10 +431,19 @@ function buildWall(def: WallDef): WallBuild {
   const decorParts: Part[] = [];
   for (const o of def.openings) {
     if (o.door) {
-      decorParts.push(box(0.12, 2.75, WALL_T + 0.08, C.trim, [o.c - o.w / 2 - 0.04, 1.375, 0]));
-      decorParts.push(box(0.12, 2.75, WALL_T + 0.08, C.trim, [o.c + o.w / 2 + 0.04, 1.375, 0]));
-      decorParts.push(box(o.w + 0.36, 0.18, WALL_T + 0.08, C.trim, [o.c, o.t + 0.08, 0]));
-      decorParts.push(box(0.24, 0.3, 0.06, C.trim, [o.c, o.t + 0.1, HALF_T + 0.06]));
+      // Sturdy storybook timber jambs
+      decorParts.push(box(0.14, 2.75, WALL_T + 0.08, C.trim, [o.c - o.w / 2 - 0.05, 1.375, 0]));
+      decorParts.push(box(0.14, 2.75, WALL_T + 0.08, C.trim, [o.c + o.w / 2 + 0.05, 1.375, 0]));
+      // Arched wooden header / lintel casing
+      decorParts.push(box(o.w + 0.38, 0.18, WALL_T + 0.08, C.trim, [o.c, o.t + 0.09, 0]));
+      // Carved central keystone
+      decorParts.push(box(0.24, 0.32, WALL_T + 0.12, C.trim, [o.c, o.t + 0.14, 0]));
+      // Transom fanlight window pane above the door
+      decorParts.push(box(o.w - 0.08, 0.32, 0.015, C.glass, [o.c, o.t - 0.14, 0.06], { m: 'glass' }));
+      // Fanlight radiating bars
+      for (const barX of [-0.45, 0, 0.45]) {
+        decorParts.push(box(0.035, 0.32, 0.04, C.trim, [o.c + barX, o.t - 0.14, 0.07]));
+      }
       decorParts.push(box(o.w, 0.04, WALL_T + 0.06, '#8a7a66', [o.c, 0.15, 0]));
       // Double doors swung open into the hall
       decorParts.push(...place(doorLeaf(1), [o.c - o.w / 2 + 0.02, 0, -0.12], [0, 1.745, 0]));
@@ -411,9 +478,55 @@ function buildWall(def: WallDef): WallBuild {
 // ---------------------------------------------------------------------------------------
 // Static interior + exterior details (never cut away)
 // ---------------------------------------------------------------------------------------
+function ivyVineParts(startX: number, startY: number, startZ: number, height: number, seed: number): Part[] {
+  const parts: Part[] = [];
+  const r = rng(seed);
+  const segments = Math.floor(height / 0.32);
+  let curX = startX;
+  let curY = startY;
+  let curZ = startZ;
+
+  for (let i = 0; i < segments; i++) {
+    const nextY = curY + 0.28 + r() * 0.08;
+    const nextX = curX + (r() - 0.5) * 0.12;
+    const nextZ = curZ + (r() - 0.5) * 0.04;
+
+    const len = Math.hypot(nextX - curX, nextY - curY, nextZ - curZ);
+    const midX = (curX + nextX) / 2;
+    const midY = (curY + nextY) / 2;
+    const midZ = (curZ + nextZ) / 2;
+    parts.push(box(0.024, len, 0.024, C.walnut, [midX, midY, midZ]));
+
+    const leafCount = 2 + Math.floor(r() * 2);
+    for (let k = 0; k < leafCount; k++) {
+      const lx = midX + (r() - 0.5) * 0.14;
+      const ly = midY + (r() - 0.5) * 0.10;
+      const lz = midZ + 0.03 + r() * 0.04;
+      parts.push(sph(0.08 + r() * 0.025, k % 2 === 0 ? C.leaf : C.leafDark, [lx, ly, lz], {
+        seg: 6,
+        s: [1, 0.45, 1],
+      }));
+    }
+
+    if (r() > 0.6) {
+      parts.push(sph(0.035, '#f4a259', [curX + (r() - 0.5) * 0.08, nextY, curZ + 0.05], { seg: 6 }));
+    }
+
+    curX = nextX;
+    curY = nextY;
+    curZ = nextZ;
+  }
+  return parts;
+}
+
 function staticParts(): Part[] {
   const parts: Part[] = [];
   const F = FLOOR_Y;
+
+  // Climbing storybook ivy on stone corners & porch column
+  parts.push(...ivyVineParts(-6.62, 0.15, -1.45, 2.5, 401));
+  parts.push(...ivyVineParts(6.62, 0.15, -1.45, 1.8, 402));
+  parts.push(...ivyVineParts(-1.6, 0.45, 0.18, 2.4, 403));
 
   // Skirting boards along the inner wall faces
   parts.push(box(12.7, 0.12, 0.03, C.walnut, [0, F + 0.06, -10.33]));
@@ -785,8 +898,8 @@ export const House: React.FC<HouseProps> = ({ engine }) => {
     const sidingMat = new THREE.MeshStandardMaterial({ map: sidingTexture(), roughness: 0.48, metalness: 0.02 });
     const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTexture(), roughness: 0.62, metalness: 0.02 });
     const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture(), roughness: 0.35, metalness: 0.04 });
-    const smokeMat = new THREE.MeshBasicMaterial({ color: '#eef2f6', transparent: true, opacity: 0.38, depthWrite: false });
-    const smokeGeo = new THREE.SphereGeometry(0.3, 8, 6);
+    const smokeMat = new THREE.MeshBasicMaterial({ color: '#f2f5f9', transparent: true, opacity: 0.52, depthWrite: false });
+    const smokeGeo = new THREE.DodecahedronGeometry(0.34, 1);
     const walls = WALLS.map((w) => buildWall(w));
     const floor = mergeWorldUV([tBox(12.7, 0.04, 8.7, [0, FLOOR_Y - 0.02, -6])], 2.4);
     const foundation = mergeWorldUV([tBox(13.6, 0.14, 9.6, [0, 0.07, -6])], 1.2);
@@ -877,17 +990,29 @@ export const House: React.FC<HouseProps> = ({ engine }) => {
       g.visible = show;
     }
 
-    // 4. Chimney smoke (position/scale only; shared material is never touched).
+    // 4. Chimney smoke (buoyant tumbling cartoon cloud puffs).
     const smoke = smokeRef.current;
     if (smoke && roof && roof.visible) {
       const t = state.clock.elapsedTime;
       const puffs = smoke.children;
-      for (let i = 0; i < puffs.length; i++) {
-        const o = (t * 0.35 + i / puffs.length) % 1;
+      const numPuffs = puffs.length;
+      for (let i = 0; i < numPuffs; i++) {
+        const o = (t * 0.28 + i / numPuffs) % 1;
         const p = puffs[i];
-        p.position.set(Math.sin(t * 1.3 + i * 1.7) * 0.18 * o + o * 0.6, o * 2.4, 0);
-        const sc = (0.35 + o * 0.85) * (1 - o * o * o);
-        p.scale.setScalar(sc);
+        // Buoyant ascent: rises smoothly, decelerating gently
+        const py = Math.pow(o, 0.82) * 3.2;
+        // Breeze drift with gentle wobble
+        const px = Math.sin(t * 1.6 + i * 1.4) * 0.18 * o + Math.pow(o, 1.3) * 0.95;
+        const pz = Math.cos(t * 1.2 + i * 1.1) * 0.12 * o;
+        p.position.set(px, py, pz);
+
+        // Chubby cartoon swell & pop: starts small, swells into chubby cloud, billows & pops
+        const sc = Math.sin(Math.PI * Math.pow(o, 0.72)) * (0.42 + 0.88 * o);
+        p.scale.setScalar(Math.max(0.001, sc));
+
+        // Tumbling rotation
+        p.rotation.z = t * 0.4 + i * 0.8;
+        p.rotation.y = t * 0.25 + i * 1.1;
       }
     }
   });
@@ -930,7 +1055,7 @@ export const House: React.FC<HouseProps> = ({ engine }) => {
         <mesh geometry={built.gables} material={built.sidingMat} castShadow receiveShadow />
         <primitive object={built.shingles} />
         <group ref={smokeRef} position={[CHIMNEY[0], 8.45, CHIMNEY[2]]}>
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2, 3, 4, 5, 6].map((i) => (
             <mesh key={i} geometry={built.smokeGeo} material={built.smokeMat} />
           ))}
         </group>
