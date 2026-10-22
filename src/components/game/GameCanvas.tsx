@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Environment, ContactShadows, Sparkles } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette, HueSaturation, TiltShift2 } from '@react-three/postprocessing';
+import { EffectComposer, Bloom, Vignette, HueSaturation } from '@react-three/postprocessing';
 import { SUN_POSITION } from './env/palette';
 import * as THREE from 'three';
 import { getPhysicsEngine } from '../../wasm/engine';
@@ -111,16 +111,8 @@ export const GameCanvas: React.FC = () => {
         <Character engine={engine} />
         <CameraController engine={engine} />
 
-        {/* 7. Classic Tilt-Shift Miniature Photography (Evan Wallace Tilt-Shift) */}
+        {/* 7. Clean High-Performance Post-Processing (100% Sharp) */}
         <EffectComposer multisampling={4}>
-          <TiltShift2
-            blur={0.28}
-            taper={0.52}
-            start={[0.0, 0.46]}
-            end={[1.0, 0.46]}
-            samples={12}
-            direction={[0, 1]}
-          />
           <Bloom
             luminanceThreshold={0.85}
             luminanceSmoothing={0.18}
