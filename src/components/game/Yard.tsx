@@ -167,7 +167,7 @@ export const Yard: React.FC<YardProps> = ({ engine }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Ground: world-space meadow colour + worn dirt along the stepping-stone path.
+// Ground: world-space meadow colour + foundation mulch + worn dirt path.
 // ---------------------------------------------------------------------------
 function createGroundMaterial(): THREE.MeshStandardMaterial {
   // Rich velvety lawn response for diorama lighting
@@ -183,14 +183,33 @@ function createGroundMaterial(): THREE.MeshStandardMaterial {
       'vec4 diffuseColor = vec4( diffuse, opacity );',
       `vec3 mc = meadowColor(vMeadowXZ);
        mc *= 0.86 + envNoise(vMeadowXZ * 3.3) * 0.16;
+
+       // 1. Natural worn earth path
        float pd = abs(vMeadowXZ.x - sin(vMeadowXZ.y * 0.9) * 0.22);
-       float worn = (1.0 - smoothstep(0.35, 0.85, pd + envNoise(vMeadowXZ * 4.0) * 0.25))
+       float worn = (1.0 - smoothstep(0.32, 0.88, pd + envNoise(vMeadowXZ * 4.0) * 0.25))
                     * smoothstep(0.4, 0.9, vMeadowXZ.y) * (1.0 - smoothstep(11.9, 12.4, vMeadowXZ.y));
-       mc = mix(mc, uDirt * 0.8, worn * 0.6);
+
+       // 2. Foundation garden soil / mulch skirt around the cottage
+       vec2 houseHalf = vec2(6.85, 4.85);
+       vec2 houseCenter = vec2(0.0, -6.0);
+       vec2 dHouse = abs(vMeadowXZ - houseCenter) - houseHalf;
+       float houseDist = length(max(dHouse, 0.0)) + min(max(dHouse.x, dHouse.y), 0.0);
+       float mulch = (1.0 - smoothstep(0.02, 0.62, houseDist + envNoise(vMeadowXZ * 3.8) * 0.22))
+                     * smoothstep(-0.25, 0.04, houseDist);
+
+       // 3. Perimeter fence subtle earth contact rim
+       float fenceBorder = smoothstep(11.9, 12.45, max(abs(vMeadowXZ.x), abs(vMeadowXZ.y)));
+
+       // Blend grounding tones
+       vec3 darkMulch = uDirt * vec3(0.62, 0.52, 0.44);
+       mc = mix(mc, darkMulch, mulch * 0.78);
+       mc = mix(mc, uDirt * 0.82, worn * 0.65);
+       mc = mix(mc, uDirt * 0.72, fenceBorder * 0.35);
+
        vec4 diffuseColor = vec4( mc, opacity );`,
     );
   };
-  mat.customProgramCacheKey = () => 'env-ground-v1';
+  mat.customProgramCacheKey = () => 'env-ground-v2';
   return mat;
 }
 
@@ -258,7 +277,7 @@ function buildYard(): { yardMesh: THREE.Mesh; glowMesh: THREE.Mesh } {
   return { yardMesh, glowMesh };
 }
 
-/** Cream picket fence: posts every 2.5 m (deduplicated corners), two rails, pointed pickets and a gate. */
+/** Storybook cream picket fence: scalloped catenary bays and timber gate archway with climbing roses. */
 function buildFence(b: GeoBuilder, glow: GeoBuilder): void {
   const r = b.rng;
   const F = FENCE;
@@ -286,14 +305,14 @@ function buildFence(b: GeoBuilder, glow: GeoBuilder): void {
     const key = `${x.toFixed(2)}|${z.toFixed(2)}`;
     if (seen.has(key)) return;
     seen.add(key);
-    b.add(PRIM.box, { pos: [x, 0.53, z], scale: [0.15, 1.06, 0.15], color: PALETTE.picketShade, facetJitter: 0.03 });
-    b.add(PRIM.box, { pos: [x, 1.07, z], scale: [0.19, 0.035, 0.19], color: PALETTE.picket });
-    b.add(PRIM.cone4, { pos: [x, 1.15, z], scale: [0.13, 0.13, 0.13], color: PALETTE.picket });
+    b.add(PRIM.box, { pos: [x, 0.53, z], scale: [0.16, 1.06, 0.16], color: PALETTE.picketShade, facetJitter: 0.03 });
+    b.add(PRIM.box, { pos: [x, 1.07, z], scale: [0.20, 0.04, 0.20], color: PALETTE.picket });
+    b.add(PRIM.cone4, { pos: [x, 1.15, z], scale: [0.14, 0.14, 0.14], color: PALETTE.picket });
   };
 
   const picket = (x: number, z: number, yaw: number, h: number) => {
-    b.add(PRIM.box, { pos: [x, 0.06 + h / 2, z], rot: [0, yaw, (r() - 0.5) * 0.03], scale: [0.1, h, 0.03], color: PALETTE.picket, facetJitter: 0.035 });
-    b.add(PRIM.cone4, { pos: [x, 0.06 + h + 0.055, z], rot: [0, yaw, 0], scale: [0.072, 0.11, 0.027], color: PALETTE.picket });
+    b.add(PRIM.box, { pos: [x, 0.06 + h / 2, z], rot: [0, yaw, (r() - 0.5) * 0.035], scale: [0.105, h, 0.032], color: PALETTE.picket, facetJitter: 0.035 });
+    b.add(PRIM.cone4, { pos: [x, 0.06 + h + 0.055, z], rot: [0, yaw, 0], scale: [0.076, 0.11, 0.028], color: PALETTE.picket });
   };
 
   for (const run of runs) {
@@ -308,88 +327,212 @@ function buildFence(b: GeoBuilder, glow: GeoBuilder): void {
       const len = Math.hypot(x2 - x, z2 - z);
       const mx = (x + x2) / 2;
       const mz = (z + z2) / 2;
-      // Rails (slightly inside), pickets (slightly outside)
-      for (const ry of [0.3, 0.72]) {
+
+      // Rails (slightly inside)
+      for (const ry of [0.28, 0.70]) {
         b.add(PRIM.box, {
           pos: [mx - ox * 0.02, ry, mz - oz * 0.02],
           scale: alongX ? [len, 0.07, 0.035] : [0.035, 0.07, len],
           color: PALETTE.picketShade,
         });
       }
+
       const usable = len - 0.2;
-      const n = Math.max(1, Math.round(usable / 0.26));
+      const n = Math.max(1, Math.round(usable / 0.25));
       for (let k = 0; k < n; k++) {
         const t = (k + 0.5) / n;
         const px = x + (x2 - x) * (0.1 / len + t * usable / len);
         const pz = z + (z2 - z) * (0.1 / len + t * usable / len);
-        picket(px + ox * 0.045, pz + oz * 0.045, yaw, 0.82 + (r() - 0.5) * 0.02);
+
+        // Storybook concave scalloped bay: pickets dip gracefully in the center
+        const scallopDip = 0.18 * 4 * t * (1 - t);
+        const h = 0.94 - scallopDip + (r() - 0.5) * 0.02;
+
+        picket(px + ox * 0.045, pz + oz * 0.045, yaw, h);
       }
     }
   }
 
-  // ---- Front gate: sturdy posts on stone footings, lanterns, two closed picket leaves ----
-  for (const sx of [-1, 1]) {
-    const x = sx * GATE_HALF;
-    b.add(PRIM.box, { pos: [x, 0.16, F], scale: [0.36, 0.32, 0.36], color: PALETTE.stone, facetJitter: 0.06, wobble: 0.03 });
-    b.add(PRIM.box, { pos: [x, 0.9, F], scale: [0.22, 1.2, 0.22], color: PALETTE.picketShade, facetJitter: 0.03 });
-    b.add(PRIM.box, { pos: [x, 1.52, F], scale: [0.3, 0.05, 0.3], color: PALETTE.picket });
-    addLantern(b, glow, x, 1.545, F, 1.05);
+  // ---- Front Garden Trellis Arch & Gate ----
+  buildGateTrellis(b, glow);
+}
 
-    // Gate leaf: hinged at the post, meeting in the middle
+/** Front gate: sturdy pergola arbor arch with climbing rose vines, hanging carriage lantern, and arched gate leaves. */
+function buildGateTrellis(b: GeoBuilder, glow: GeoBuilder): void {
+  const r = b.rng;
+  const F = FENCE;
+  const gh = GATE_HALF; // 1.2
+  const postH = 2.45;
+
+  // 1. Two sturdy wooden pergola columns on stone footings
+  for (const sx of [-1, 1]) {
+    const x = sx * gh;
+    // Molded stone footing
+    b.add(PRIM.box, { pos: [x, 0.18, F], scale: [0.38, 0.36, 0.38], color: PALETTE.stone, facetJitter: 0.06, wobble: 0.03 });
+    b.add(PRIM.box, { pos: [x, 0.38, F], scale: [0.42, 0.05, 0.42], color: PALETTE.stoneLight });
+
+    // Main timber upright column
+    b.add(PRIM.box, { pos: [x, 0.4 + (postH - 0.4) / 2, F], scale: [0.22, postH - 0.4, 0.22], color: PALETTE.woodLight, facetJitter: 0.04 });
+    // Decorative collar trim near top
+    b.add(PRIM.box, { pos: [x, postH - 0.08, F], scale: [0.28, 0.06, 0.28], color: PALETTE.wood });
+
+    // Climbing rose vine wrapping around the upright post
+    const turns = 5;
+    for (let i = 0; i < turns; i++) {
+      const a = i * 1.3 + (sx === 1 ? 0 : Math.PI);
+      const vy = 0.45 + i * 0.38;
+      const vx = x + Math.cos(a) * 0.14;
+      const vz = F + Math.sin(a) * 0.14;
+      b.add(PRIM.ico1, { pos: [vx, vy, vz], scale: 0.14 + r() * 0.04, color: i % 2 === 0 ? PALETTE.leaf : PALETTE.leafDeep, facetJitter: 0.08 });
+      // Rosebud
+      if (i % 2 === 1) {
+        b.add(PRIM.ico0, { pos: [vx + Math.cos(a) * 0.06, vy + 0.05, vz + Math.sin(a) * 0.06], scale: 0.065, color: PALETTE.blossom[i % 3] });
+      }
+    }
+  }
+
+  // 2. Curved Pergola Arch Beam spanning between the posts
+  const span = gh * 2 + 0.6; // 3.0m
+  for (const zOff of [-0.08, 0.08]) {
+    // Main arch beam
+    b.add(PRIM.box, { pos: [0, postH + 0.06, F + zOff], scale: [span, 0.12, 0.07], color: PALETTE.wood });
+    // Scrolled decorative bracket ends projecting past the posts
+    for (const sx of [-1, 1]) {
+      b.add(PRIM.box, { pos: [sx * (span / 2 + 0.08), postH + 0.09, F + zOff], scale: [0.18, 0.08, 0.07], color: PALETTE.woodLight, rot: [0, 0, sx * 0.4] });
+      // Angle support brace
+      const brace = between([sx * (gh - 0.12), postH - 0.45, F + zOff], [sx * (gh * 0.45), postH, F + zOff]);
+      b.add(PRIM.box, { pos: brace.pos, rot: brace.rot, scale: [0.06, brace.len, 0.05], color: PALETTE.woodLight });
+    }
+  }
+
+  // 3. Pergola transverse cross-rafters across the top
+  const rafterCount = 6;
+  for (let i = 0; i < rafterCount; i++) {
+    const rx = -gh * 0.95 + (i / (rafterCount - 1)) * (gh * 1.9);
+    b.add(PRIM.box, { pos: [rx, postH + 0.18, F], scale: [0.065, 0.08, 0.52], color: PALETTE.wood, facetJitter: 0.03 });
+    // Vine leaves draping over cross-rafters
+    if (i === 1 || i === 4) {
+      b.add(PRIM.ico1, { pos: [rx, postH + 0.22, F + 0.12], scale: [0.18, 0.12, 0.18], color: PALETTE.leafLight, facetJitter: 0.08 });
+      b.add(PRIM.ico0, { pos: [rx + 0.04, postH + 0.24, F + 0.18], scale: 0.06, color: PALETTE.blossom[0] });
+    }
+  }
+
+  // 4. Center Hanging Carriage Lantern with warm glowing amber light
+  // Suspension chain
+  b.add(PRIM.cyl8, { pos: [0, postH - 0.1, F], scale: [0.015, 0.24, 0.015], color: PALETTE.lanternMetal });
+  addLantern(b, glow, 0, postH - 0.35, F, 1.25);
+
+  // 5. Arched Gate Leaves: two swinging doors with arched top profile
+  for (const sx of [-1, 1]) {
     const inner = sx * 0.03;
-    const outer = sx * (GATE_HALF - 0.12);
+    const outer = sx * (gh - 0.12);
     const w = Math.abs(outer - inner);
     const cx = (inner + outer) / 2;
-    for (const ry of [0.24, 0.66]) {
+
+    for (const ry of [0.24, 0.68]) {
       b.add(PRIM.box, { pos: [cx, ry, F - 0.03], scale: [w, 0.08, 0.04], color: PALETTE.woodLight, facetJitter: 0.04 });
     }
-    const brace = between([outer, 0.26, F - 0.055], [inner, 0.64, F - 0.055]);
+    const brace = between([outer, 0.26, F - 0.055], [inner, 0.66, F - 0.055]);
     b.add(PRIM.box, { pos: brace.pos, rot: brace.rot, scale: [0.06, brace.len, 0.03], color: PALETTE.woodLight });
-    const n = 4;
+
+    const n = 5;
     for (let k = 0; k < n; k++) {
       const t = (k + 0.5) / n;
       const px = inner + (outer - inner) * t;
-      // Scalloped top: pickets rise toward the posts
-      const h = 0.68 + 0.16 * Math.pow(Math.abs(px) / GATE_HALF, 1.5);
-      b.add(PRIM.box, { pos: [px, 0.1 + h / 2, F + 0.01], scale: [0.11, h, 0.03], color: PALETTE.picket, facetJitter: 0.03 });
-      b.add(PRIM.cone4, { pos: [px, 0.1 + h + 0.055, F + 0.01], scale: [0.078, 0.11, 0.027], color: PALETTE.picket });
+      // Arched crest profile: sweeps up towards the center
+      const archFactor = 1.0 - Math.pow(Math.abs(px) / gh, 1.4);
+      const h = 0.72 + 0.22 * archFactor;
+
+      b.add(PRIM.box, { pos: [px, 0.1 + h / 2, F + 0.01], scale: [0.095, h, 0.03], color: PALETTE.picket, facetJitter: 0.03 });
+      b.add(PRIM.cone4, { pos: [px, 0.1 + h + 0.055, F + 0.01], scale: [0.072, 0.11, 0.026], color: PALETTE.picket });
     }
-    // Hinges + latch
-    for (const hy of [0.24, 0.66]) {
-      b.add(PRIM.box, { pos: [sx * (GATE_HALF - 0.1), hy, F + 0.035], scale: [0.12, 0.04, 0.015], color: PALETTE.lanternMetal });
+
+    // Wrought-iron strap hinges + latch
+    for (const hy of [0.24, 0.68]) {
+      b.add(PRIM.box, { pos: [sx * (gh - 0.1), hy, F + 0.035], scale: [0.14, 0.045, 0.018], color: PALETTE.lanternMetal });
     }
   }
-  b.add(PRIM.box, { pos: [0, 0.5, F + 0.04], scale: [0.14, 0.05, 0.02], color: PALETTE.lanternMetal });
+  // Iron thumb latch at center
+  b.add(PRIM.box, { pos: [0, 0.54, F + 0.04], scale: [0.15, 0.055, 0.025], color: PALETTE.lanternMetal });
 }
 
-/** Irregular flagstone stepping stones from the porch to the gate, edged with pebbles. */
+/** Handcrafted organic flagstone stepping stones, 3D clovers, and river pebble scatter. */
 function buildPath(b: GeoBuilder): void {
   const r = b.rng;
   const stoneTones = [PALETTE.stone, PALETTE.stoneLight, PALETTE.stoneDark];
-  const count = 12;
+  const count = 15;
+
   for (let i = 0; i < count; i++) {
-    const z = PATH_START_Z + ((PATH_END_Z - PATH_START_Z) * i) / (count - 1);
-    const x = pathX(z) + (r() - 0.5) * 0.08;
-    const sx = 0.4 + r() * 0.08;
-    const sz = 0.32 + r() * 0.06;
+    const t = i / (count - 1);
+    const z = PATH_START_Z + (PATH_END_Z - PATH_START_Z) * t;
+
+    // Natural alternating human footstep cadence (left / right step sway)
+    const stepSide = i % 2 === 0 ? -0.11 : 0.11;
+    const x = pathX(z) + stepSide * (0.8 + r() * 0.4);
+
+    // Diverse stone dimensions (some wide slabs, some compact stepping stones)
+    const isSlab = i % 4 === 0;
+    const sx = (isSlab ? 0.54 : 0.42) + r() * 0.08;
+    const sz = (isSlab ? 0.44 : 0.34) + r() * 0.06;
+    const rotY = r() * Math.PI;
+
+    // Organic rounded flagstone
     b.add(PRIM.cyl8, {
-      pos: [x, 0.015, z], rot: [0, r() * Math.PI, 0], scale: [sx, 0.07, sz],
-      color: stoneTones[i % 3], facetJitter: 0.05, wobble: 0.06,
-      colorFn: (_x, y, _z, out) => { if (y > 0.4) out.multiplyScalar(1.06); else out.multiplyScalar(0.8); },
+      pos: [x, 0.018, z],
+      rot: [0, rotY, 0],
+      scale: [sx, 0.065, sz],
+      color: stoneTones[i % 3],
+      facetJitter: 0.06,
+      wobble: 0.07,
+      colorFn: (_x, y, _z, out) => {
+        if (y > 0.4) out.multiplyScalar(1.06);
+        else out.multiplyScalar(0.78);
+      },
     });
+
+    // 3D Miniature Clover Clumps & Moss in Stone Gaps
+    if (i > 0 && i < count - 1 && r() > 0.25) {
+      const cx = (x + pathX(z)) * 0.5 + (r() - 0.5) * 0.16;
+      const cz = z + (r() - 0.5) * 0.22;
+      const cloverColor = r() > 0.3 ? PALETTE.leafLight : PALETTE.leafSun;
+
+      // 3 clover leaves arranged in a triad (shamrock)
+      const leafCount = r() > 0.85 ? 4 : 3; // occasional 4-leaf clover!
+      for (let l = 0; l < leafCount; l++) {
+        const la = (l / leafCount) * Math.PI * 2;
+        const lx = cx + Math.cos(la) * 0.04;
+        const lz = cz + Math.sin(la) * 0.04;
+        b.add(PRIM.ico0, {
+          pos: [lx, 0.025, lz],
+          scale: [0.038, 0.008, 0.038],
+          color: cloverColor,
+          facetJitter: 0.06,
+        });
+      }
+    }
   }
-  // Pebble borders
-  for (let z = PATH_START_Z - 0.2; z < PATH_END_Z + 0.3; z += 0.2) {
+
+  // Smooth river pebble clusters hugging the flagstone path
+  for (let z = PATH_START_Z - 0.2; z < PATH_END_Z + 0.3; z += 0.24) {
     for (const side of [-1, 1]) {
-      if (r() < 0.3) continue;
-      const off = 0.68 + r() * 0.14;
+      if (r() < 0.35) continue;
+      const off = 0.65 + r() * 0.18;
       const x = pathX(z) + side * off;
-      const pebble: V3 = [x, 0.012, z + (r() - 0.5) * 0.1];
-      const s = 0.045 + r() * 0.04;
-      b.add(PRIM.ico0, {
-        pos: pebble, rot: [r(), r() * 3, r()], scale: [s, s * 0.55, s * (0.8 + r() * 0.3)],
-        color: stoneTones[Math.floor(r() * 3)], facetJitter: 0.1,
-      });
+
+      // Cluster of 2-3 pebbles
+      const clusterSize = 1 + Math.floor(r() * 2.5);
+      for (let c = 0; c < clusterSize; c++) {
+        const px = x + (r() - 0.5) * 0.12;
+        const pz = z + (r() - 0.5) * 0.12;
+        const s = 0.038 + r() * 0.035;
+        b.add(PRIM.ico0, {
+          pos: [px, 0.012, pz],
+          rot: [r() * 2, r() * 3, r() * 2],
+          scale: [s, s * 0.6, s * (0.8 + r() * 0.4)],
+          color: stoneTones[Math.floor(r() * stoneTones.length)],
+          facetJitter: 0.08,
+        });
+      }
     }
   }
 }
