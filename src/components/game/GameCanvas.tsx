@@ -44,7 +44,7 @@ export const GameCanvas: React.FC = () => {
         gl={{
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.18,
+          toneMappingExposure: 1.25,
           powerPreference: 'high-performance',
           preserveDrawingBuffer: true,
         }}
@@ -60,7 +60,7 @@ export const GameCanvas: React.FC = () => {
         <directionalLight
           castShadow
           position={SUN_POSITION}
-          intensity={2.2}
+          intensity={2.35}
           color="#ffad5c"
           shadow-mapSize-width={1024}
           shadow-mapSize-height={1024}
@@ -75,13 +75,13 @@ export const GameCanvas: React.FC = () => {
         />
 
         {/* Balanced Ambient & Warm Hemisphere Lighting for cozy diorama golden hour */}
-        <ambientLight intensity={0.45} color="#ffb380" />
-        <hemisphereLight args={['#f472b6', '#78350f', 0.55]} />
+        <ambientLight intensity={0.62} color="#fff1e0" />
+        <hemisphereLight args={['#f9a8d4', '#92400e', 0.68]} />
 
         {/* 3. Soft Velvet Contact Shadows on the ground */}
         <ContactShadows
           position={[0, 0.01, 0]}
-          opacity={0.68}
+          opacity={0.58}
           scale={32}
           blur={2.0}
           far={5.0}
@@ -124,7 +124,7 @@ export const GameCanvas: React.FC = () => {
             radius={0.5}
           />
           <HueSaturation saturation={0.28} />
-          <Vignette eskil={false} offset={0.18} darkness={0.32} />
+          <Vignette eskil={false} offset={0.24} darkness={0.22} />
         </EffectComposer>
       </Canvas>
     </div>

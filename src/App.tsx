@@ -13,7 +13,7 @@ export const App: React.FC = () => {
     <ErrorBoundary>
       <GameProvider>
         <GardenProvider>
-          <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-game">
+          <div className="relative w-screen h-screen overflow-hidden bg-gradient-to-b from-[#475e8a] via-[#e67a5c] to-[#ffb36b] font-game">
             {/* 3D World Viewport */}
             <GameCanvas />
 

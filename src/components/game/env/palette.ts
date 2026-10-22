@@ -70,11 +70,11 @@ export const PALETTE = {
   snow: '#eef2f2',
 
   // Sky: rich storybook sunset gradient (horizon matches GameCanvas fog colour)
-  skyZenith: '#3a4b6e',
-  skyMid: '#df6d4e',
-  skyHorizon: '#ffaa5b',
-  sunCore: '#fff8b8',
-  sunGlow: '#ff7824',
+  skyZenith: '#475e8a',
+  skyMid: '#e67a5c',
+  skyHorizon: '#ffb36b',
+  sunCore: '#fffbe0',
+  sunGlow: '#ff8a29',
   cloud: '#fff5ea',
   cloudShade: '#f3c4a8',
 } as const;

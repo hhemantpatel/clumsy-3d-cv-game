@@ -9,8 +9,21 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-slate-900 text-slate-100 overflow-hidden antialiased">
-    <div id="root"></div>
+  <body style="margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: linear-gradient(180deg, #475e8a 0%, #e67a5c 48%, #ffb36b 100%); font-family: 'Outfit', sans-serif;">
+    <div id="root" style="width: 100%; height: 100%;">
+      <!-- Seamless instant sunset loader shown only for the ~0.3s before React mounts -->
+      <div style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(180deg, #475e8a 0%, #e67a5c 48%, #ffb36b 100%); z-index: 9999;">
+        <div style="width: 52px; height: 52px; border-radius: 50%; background: #fffde2; box-shadow: 0 0 35px #ffaa22, 0 0 65px rgba(255, 170, 34, 0.45); animation: diorama-pulse 1.8s ease-in-out infinite;"></div>
+        <div style="margin-top: 18px; color: #fffdfa; font-weight: 800; font-size: 17px; letter-spacing: 0.04em; text-shadow: 0 2px 10px rgba(43, 29, 22, 0.5);">Hemant Patel · 3D Portfolio</div>
+        <div style="margin-top: 6px; color: #fed7aa; font-weight: 700; font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase;">Loading diorama...</div>
+      </div>
+      <style>
+        @keyframes diorama-pulse {
+          0%, 100% { transform: scale(1); opacity: 0.95; }
+          50% { transform: scale(1.12); opacity: 1; box-shadow: 0 0 55px #ffaa22, 0 0 90px rgba(255, 170, 34, 0.65); }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
