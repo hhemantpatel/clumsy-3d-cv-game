@@ -45,20 +45,49 @@ const STONE_TOP = 0.95;
 const X_OUT = 6.65; // outer face of the side walls (and half-width of front/back walls)
 const STUB = 0.12; // cutaway wall height factor (≈0.45 m)
 
-const PITCH = 0.5;
-const TAN = Math.tan(PITCH);
-const COS = Math.cos(PITCH);
-const SIN = Math.sin(PITCH);
-const EAVE_X = 7.25;
-const SLAB_T = 0.18;
-const SLAB_LEN = EAVE_X / COS;
-const RIDGE_Y = WALL_TOP + X_OUT * TAN; // underside of the roof at the ridge
-const ROOF_DEPTH = 10.2; // z -11.1 .. -0.9
+// Storybook curved roof parameters (100% Symmetrical: y(-x) === y(x))
+const EAVE_X = 7.35; // eave extends 0.70m past the wall for cozy storybook overhang
+const RIDGE_Y = 7.40; // peak height of the ridge
+const EAVE_Y = 3.55; // eave tip height
+const SLAB_T = 0.18; // thickness of roof slab
+const ROOF_DEPTH = 10.3; // z -11.15 .. -0.85
 const ROOF_ZC = -6.0;
-// Slab centre (right side; left is mirrored)
-const SLAB_CX = EAVE_X / 2 + SIN * (SLAB_T / 2);
-const SLAB_CY = WALL_TOP + (X_OUT - EAVE_X / 2) * TAN + COS * (SLAB_T / 2);
-const EAVE_Y = WALL_TOP - (EAVE_X - X_OUT) * TAN;
+
+/**
+ * Mathematical curve profile for the symmetrical inward-curving roof.
+ * Dips inward (concave sag) in the mid-span and flares outward gently at the eaves.
+ * 100% Symmetrical: getRoofY(-x) === getRoofY(x).
+ */
+function getRoofY(x: number): number {
+  const ax = Math.abs(x);
+  if (ax <= X_OUT) {
+    const v = ax / X_OUT;
+    // Inward sag: drops faster near ridge, flattens towards wall plate
+    return RIDGE_Y - (RIDGE_Y - 3.80) * ((1 + 0.32) * v - 0.32 * v * v);
+  }
+  // Smooth eave flare from wall plate (y=3.80) to eave tip (y=3.55)
+  const w = Math.min(1, (ax - X_OUT) / (EAVE_X - X_OUT));
+  return 3.80 - 0.258 * w + 0.008 * w * w;
+}
+
+/**
+ * Returns the roof slope angle in radians at coordinate x.
+ * Used for aligning shingles, trims, and gutters with exact curve tangency.
+ */
+function getRoofSlope(x: number): number {
+  const ax = Math.abs(x);
+  const sign = x >= 0 ? 1 : -1;
+  if (ax <= X_OUT) {
+    const v = ax / X_OUT;
+    const dy_dv = -(RIDGE_Y - 3.80) * (1.32 - 0.64 * v);
+    const dy_dx = sign * (dy_dv / X_OUT);
+    return Math.atan(dy_dx);
+  }
+  const w = Math.min(1, (ax - X_OUT) / (EAVE_X - X_OUT));
+  const dy_dw = -0.258 + 0.016 * w;
+  const dy_dx = sign * (dy_dw / (EAVE_X - X_OUT));
+  return Math.atan(dy_dx);
+}
 
 const CHIMNEY: V3 = [-4.0, 0, -7.6];
 
@@ -438,13 +467,18 @@ function staticParts(): Part[] {
   // Doormat
   parts.push(box(1.3, 0.02, 0.6, '#7b4a2a', [0, 0.19, -0.8]));
   parts.push(box(1.1, 0.024, 0.44, '#c08a4a', [0, 0.19, -0.8]));
-  // Posts with stone plinths, braces
+  // Turned storybook posts with stone plinths and carved caps
   for (const s of [-1, 1]) {
     const x = s * 1.6;
-    parts.push(box(0.36, 0.45, 0.36, '#9a9184', [x, 0.4, 0.15]));
-    parts.push(box(0.4, 0.05, 0.4, C.stoneCap, [x, 0.64, 0.15]));
-    parts.push(box(0.2, 2.42, 0.2, C.trim, [x, 1.87, 0.15]));
-    parts.push(box(0.07, 0.6, 0.07, C.trim, [x - s * 0.2, 2.72, 0.15], { r: [0, 0, s * -0.75] }));
+    // Stone plinth with molded cap
+    parts.push(cyl(0.22, 0.24, 0.45, '#9a9184', [x, 0.4, 0.15], { seg: 14 }));
+    parts.push(cyl(0.26, 0.26, 0.06, C.stoneCap, [x, 0.64, 0.15], { seg: 14 }));
+    // Turned timber post with base & top rings
+    parts.push(cyl(0.12, 0.12, 2.34, C.trim, [x, 1.84, 0.15], { seg: 14 }));
+    parts.push(torus(0.135, 0.024, C.beam, [x, 0.72, 0.15], { r: [Math.PI / 2, 0, 0], seg: 14 }));
+    parts.push(torus(0.135, 0.024, C.beam, [x, 2.96, 0.15], { r: [Math.PI / 2, 0, 0], seg: 14 }));
+    // Curved bracket
+    parts.push(box(0.08, 0.56, 0.08, C.trim, [x - s * 0.2, 2.72, 0.15], { r: [0, 0, s * -0.75] }));
     // Planters by the door
     const px = s * 1.3;
     parts.push(box(0.42, 0.42, 0.42, C.terracotta, [px, 0.39, -1.0]));
@@ -461,35 +495,128 @@ function staticParts(): Part[] {
 }
 
 // ---------------------------------------------------------------------------------------
-// Roof (main gable + porch gable + chimney + gutters)
+// Roof (main curved gable + porch gable + chimney + gutters)
 // ---------------------------------------------------------------------------------------
-function slabMatrix(side: number) {
-  return composeMatrix([side * SLAB_CX, SLAB_CY, ROOF_ZC], [0, 0, -side * PITCH]);
+
+/** 2D cross section shape for the main curved roof slab. */
+function curvedRoofShape(extraX = 0, extraThick = 0, extraDrop = 0): THREE.Shape {
+  const shape = new THREE.Shape();
+  const eaveX = EAVE_X + extraX;
+  const N = 36;
+  const topPts: [number, number][] = [];
+  const botPts: [number, number][] = [];
+
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const x = -eaveX + t * (2 * eaveX);
+    const y = getRoofY(Math.min(EAVE_X, Math.max(-EAVE_X, x))) + extraDrop;
+    topPts.push([x, y]);
+    botPts.push([x, y - (SLAB_T + extraThick)]);
+  }
+
+  shape.moveTo(topPts[0][0], topPts[0][1]);
+  for (let i = 1; i <= N; i++) {
+    shape.lineTo(topPts[i][0], topPts[i][1]);
+  }
+  for (let i = N; i >= 0; i--) {
+    shape.lineTo(botPts[i][0], botPts[i][1]);
+  }
+  shape.closePath();
+  return shape;
+}
+
+/** 2D gable shape following the exact symmetrical curve along its upper boundary. */
+function curvedGableShape(): THREE.Shape {
+  const shape = new THREE.Shape();
+  shape.moveTo(-X_OUT, WALL_TOP);
+  shape.lineTo(X_OUT, WALL_TOP);
+  const N = 32;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const x = X_OUT - t * (2 * X_OUT);
+    const y = getRoofY(x);
+    shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return shape;
+}
+
+// Porch dimensions & curved profile
+const PORCH_HS = 2.2;
+const PORCH_RIDGE_Y = 4.25;
+const PORCH_EAVE_Y = 3.12;
+const PORCH_DEPTH = 1.95;
+const PORCH_ZC = -0.42;
+
+function getPorchRoofY(x: number): number {
+  const ax = Math.min(PORCH_HS, Math.abs(x));
+  const v = ax / PORCH_HS;
+  return PORCH_RIDGE_Y - (PORCH_RIDGE_Y - PORCH_EAVE_Y) * ((1 + 0.28) * v - 0.28 * v * v);
+}
+
+function curvedPorchShape(extraX = 0, extraThick = 0): THREE.Shape {
+  const shape = new THREE.Shape();
+  const hs = PORCH_HS + extraX;
+  const N = 24;
+  const topPts: [number, number][] = [];
+  const botPts: [number, number][] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const x = -hs + t * (2 * hs);
+    const y = getPorchRoofY(x);
+    topPts.push([x, y]);
+    botPts.push([x, y - (0.13 + extraThick)]);
+  }
+  shape.moveTo(topPts[0][0], topPts[0][1]);
+  for (let i = 1; i <= N; i++) shape.lineTo(topPts[i][0], topPts[i][1]);
+  for (let i = N; i >= 0; i--) shape.lineTo(botPts[i][0], botPts[i][1]);
+  shape.closePath();
+  return shape;
 }
 
 function roofParts(): Part[] {
   const parts: Part[] = [];
+
+  // 1. Main curved roof underside slab (smooth extruded curve)
+  const mainRoofGeo = new THREE.ExtrudeGeometry(curvedRoofShape(), { depth: ROOF_DEPTH, bevelEnabled: false });
+  mainRoofGeo.translate(0, 0, ROOF_ZC - ROOF_DEPTH / 2);
+  parts.push(part(mainRoofGeo, C.roofUnder, [0, 0, 0]));
+
+  // 2. Symmetrical bargeboards on front and back gable ends
+  const fbGeo = new THREE.ExtrudeGeometry(curvedRoofShape(0.06, 0.08, 0.03), { depth: 0.12, bevelEnabled: false });
+  fbGeo.translate(0, 0, -1.5 - HALF_T + 0.16);
+  parts.push(part(fbGeo, C.trim, [0, 0, 0]));
+
+  const bbGeo = new THREE.ExtrudeGeometry(curvedRoofShape(0.06, 0.08, 0.03), { depth: 0.12, bevelEnabled: false });
+  bbGeo.translate(0, 0, -10.5 - HALF_T - 0.28);
+  parts.push(part(bbGeo, C.trim, [0, 0, 0]));
+
+  // 3. Eave fascia trims running along Z on both sides
   for (const s of [-1, 1]) {
-    const local: Part[] = [
-      box(SLAB_LEN, SLAB_T, ROOF_DEPTH, C.roofUnder, [0, 0, 0]),
-      // Bargeboards on the gable ends
-      box(SLAB_LEN, SLAB_T + 0.12, 0.07, C.trim, [0, -0.03, ROOF_DEPTH / 2 + 0.035]),
-      box(SLAB_LEN, SLAB_T + 0.12, 0.07, C.trim, [0, -0.03, -ROOF_DEPTH / 2 - 0.035]),
-      // Eave fascia
-      box(0.07, SLAB_T + 0.1, ROOF_DEPTH, C.trim, [s * (SLAB_LEN / 2 + 0.035), -0.03, 0]),
-    ];
-    parts.push(...place(local, [s * SLAB_CX, SLAB_CY, ROOF_ZC], [0, 0, -s * PITCH]));
-    // Gutter + downspouts
-    parts.push(box(0.14, 0.1, ROOF_DEPTH, C.gutter, [s * (EAVE_X + 0.13), EAVE_Y - 0.1, ROOF_ZC], { m: 'metal' }));
+    parts.push(box(0.08, SLAB_T + 0.08, ROOF_DEPTH, C.trim, [s * (EAVE_X + 0.03), EAVE_Y - 0.02, ROOF_ZC]));
+
+    // Gutters & downspouts along the curved eaves
+    parts.push(box(0.14, 0.1, ROOF_DEPTH, C.gutter, [s * (EAVE_X + 0.13), EAVE_Y - 0.08, ROOF_ZC], { m: 'metal' }));
     for (const z of [-1.05, -10.95]) {
       parts.push(cyl(0.045, 0.045, EAVE_Y - 0.2, C.gutter, [s * (EAVE_X + 0.13), (EAVE_Y - 0.2) / 2 + 0.05, z], { m: 'metal', seg: 8 }));
       parts.push(box(0.12, 0.06, 0.24, C.gutter, [s * (EAVE_X + 0.13), 0.06, z + (z > -5 ? 0.08 : -0.08)], { m: 'metal' }));
     }
-  }
-  // Ridge cap (diamond profile)
-  parts.push(box(0.3, 0.3, ROOF_DEPTH + 0.14, C.ridge, [0, RIDGE_Y + SLAB_T / COS - 0.04, ROOF_ZC], { r: [0, 0, Math.PI / 4] }));
 
-  // Front gable details: round attic vent
+    // Storybook decorative eave brackets / corbels under the roof overhangs
+    for (const z of [-1.65, -10.35]) {
+      parts.push(box(0.18, 0.36, 0.22, C.beam, [s * (X_OUT - 0.18), 3.52, z]));
+      parts.push(box(0.12, 0.44, 0.12, C.beam, [s * (X_OUT + 0.08), 3.54, z], { r: [0, 0, s * -0.62] }));
+    }
+  }
+
+  // 4. Ridge cap (diamond beam with storybook finials)
+  parts.push(box(0.32, 0.32, ROOF_DEPTH + 0.16, C.ridge, [0, RIDGE_Y + 0.08, ROOF_ZC], { r: [0, 0, Math.PI / 4] }));
+  for (const fz of [ROOF_ZC + ROOF_DEPTH / 2 + 0.12, ROOF_ZC - ROOF_DEPTH / 2 - 0.12]) {
+    parts.push(box(0.24, 0.24, 0.16, C.ridge, [0, RIDGE_Y + 0.18, fz], { r: [0, 0, Math.PI / 4] }));
+    parts.push(sph(0.14, C.brass, [0, RIDGE_Y + 0.38, fz], { seg: 8, m: 'metal' }));
+  }
+
+  // 5. Front gable details: round attic vent
   parts.push(torus(0.34, 0.055, C.trim, [0, 5.5, -1.33], { seg: 20 }));
   parts.push(cyl(0.32, 0.32, 0.02, '#3a2a20', [0, 5.5, -1.345], { r: [Math.PI / 2, 0, 0], seg: 20 }));
   for (let i = -2; i <= 2; i++) {
@@ -497,76 +624,88 @@ function roofParts(): Part[] {
     parts.push(box(hw * 2, 0.04, 0.03, C.trim, [0, 5.5 + i * 0.11, -1.32], { r: [-0.4, 0, 0] }));
   }
 
-  // Chimney sitting on the left slope
+  // 6. Chimney sitting on the curved slope
   const [cx, , cz] = CHIMNEY;
-  parts.push(box(0.9, 3.0, 0.9, C.brick, [cx, 6.4, cz]));
-  for (const y of [5.9, 6.6, 7.3]) parts.push(box(0.94, 0.06, 0.94, C.brickDark, [cx, y, cz]));
-  parts.push(box(1.1, 0.14, 1.1, '#6f6a64', [cx, 7.97, cz]));
-  parts.push(cyl(0.13, 0.16, 0.36, C.terracotta, [cx, 8.21, cz], { seg: 10 }));
+  const chimRoofY = getRoofY(cx);
+  const chimH = 8.1 - chimRoofY + 0.5;
+  parts.push(box(0.9, chimH, 0.9, C.brick, [cx, chimRoofY + chimH / 2 - 0.25, cz]));
+  for (const y of [6.2, 6.9, 7.6]) parts.push(box(0.94, 0.06, 0.94, C.brickDark, [cx, y, cz]));
+  parts.push(box(1.1, 0.14, 1.1, '#6f6a64', [cx, 8.0, cz]));
+  parts.push(cyl(0.13, 0.16, 0.36, C.terracotta, [cx, 8.24, cz], { seg: 10 }));
 
-  // Porch gable roof
-  const HS = 2.2;
-  const PP = 0.55;
-  const tp = Math.tan(PP);
-  const PY = 3.11;
-  const PLEN = HS / Math.cos(PP) + 0.05;
-  const PT = 0.14;
-  const pzc = -0.42;
-  const pdepth = 1.95;
-  for (const s of [-1, 1]) {
-    const pcx = s * (HS / 2 + Math.sin(PP) * PT * 0.5);
-    const pcy = PY + (HS / 2) * tp + Math.cos(PP) * PT * 0.5;
-    const local: Part[] = [box(PLEN, PT, pdepth, C.roofUnder, [0, 0, 0])];
-    for (let i = 0; i < 6; i++) {
-      local.push(box(0.44, 0.05, pdepth + 0.06, i % 2 ? '#a8432f' : '#9c3b2b', [s * (PLEN / 2 - 0.2 - i * 0.4), PT / 2 + 0.03, 0], { r: [0, 0, s * 0.09] }));
-    }
-    local.push(box(PLEN, PT + 0.1, 0.06, C.trim, [0, -0.03, pdepth / 2 + 0.03]));
-    parts.push(...place(local, [pcx, pcy, pzc], [0, 0, -s * PP]));
+  // 7. Porch curved roof
+  const porchGeo = new THREE.ExtrudeGeometry(curvedPorchShape(), { depth: PORCH_DEPTH, bevelEnabled: false });
+  porchGeo.translate(0, 0, PORCH_ZC - PORCH_DEPTH / 2);
+  parts.push(part(porchGeo, C.roofUnder, [0, 0, 0]));
+
+  // Porch front bargeboard
+  const porchBargeGeo = new THREE.ExtrudeGeometry(curvedPorchShape(0.05, 0.06), { depth: 0.08, bevelEnabled: false });
+  porchBargeGeo.translate(0, 0, PORCH_ZC + PORCH_DEPTH / 2 + 0.02);
+  parts.push(part(porchBargeGeo, C.trim, [0, 0, 0]));
+
+  // Porch gable wall fill
+  const porchGable = new THREE.Shape();
+  porchGable.moveTo(-PORCH_HS, PORCH_EAVE_Y);
+  porchGable.lineTo(PORCH_HS, PORCH_EAVE_Y);
+  for (let i = 0; i <= 20; i++) {
+    const t = i / 20;
+    const px = PORCH_HS - t * (2 * PORCH_HS);
+    porchGable.lineTo(px, getPorchRoofY(px));
   }
-  parts.push(box(0.24, 0.24, pdepth + 0.08, C.ridge, [0, PY + HS * tp + PT / Math.cos(PP) - 0.02, pzc], { r: [0, 0, Math.PI / 4] }));
-  const porchTri = new THREE.Shape();
-  porchTri.moveTo(-HS, PY);
-  porchTri.lineTo(HS, PY);
-  porchTri.lineTo(0, PY + HS * tp);
-  porchTri.closePath();
-  parts.push(part(new THREE.ExtrudeGeometry(porchTri, { depth: 0.08, bevelEnabled: false }), C.trim, [0, 0, 0.4]));
-  parts.push(box(2 * HS, 0.04, pdepth - 0.1, C.oakLight, [0, PY + 0.02, pzc]));
+  porchGable.closePath();
+  parts.push(part(new THREE.ExtrudeGeometry(porchGable, { depth: 0.06, bevelEnabled: false }), C.trim, [0, 0, 0.38]));
+  parts.push(box(0.22, 0.22, PORCH_DEPTH + 0.06, C.ridge, [0, PORCH_RIDGE_Y + 0.04, PORCH_ZC], { r: [0, 0, Math.PI / 4] }));
+  parts.push(box(2 * PORCH_HS, 0.04, PORCH_DEPTH - 0.1, C.oakLight, [0, PORCH_EAVE_Y + 0.02, PORCH_ZC]));
 
   return parts;
 }
 
 function gableGeos(): THREE.BufferGeometry {
-  const tri = new THREE.Shape();
-  tri.moveTo(-X_OUT, WALL_TOP);
-  tri.lineTo(X_OUT, WALL_TOP);
-  tri.lineTo(0, RIDGE_Y);
-  tri.closePath();
-  const front = new THREE.ExtrudeGeometry(tri, { depth: WALL_T, bevelEnabled: false });
+  const shape = curvedGableShape();
+  const front = new THREE.ExtrudeGeometry(shape, { depth: WALL_T, bevelEnabled: false });
   front.translate(0, 0, -1.5 - HALF_T);
-  const back = new THREE.ExtrudeGeometry(tri, { depth: WALL_T, bevelEnabled: false });
+  const back = new THREE.ExtrudeGeometry(shape, { depth: WALL_T, bevelEnabled: false });
   back.translate(0, 0, -10.5 - HALF_T);
   return mergeWorldUV([front, back], 1.6);
 }
 
 function buildShingles(): THREE.InstancedMesh {
-  const rows = Math.floor((SLAB_LEN - 0.42) / 0.34) + 1;
+  const rowsPerSide = 21;
+  const totalInstances = rowsPerSide * 2;
   const geo = new THREE.BoxGeometry(0.44, 0.05, ROOF_DEPTH + 0.08);
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.52, metalness: 0.02 });
-  const mesh = new THREE.InstancedMesh(geo, mat, rows * 2);
-  const palette = ['#a8432f', '#9c3b2b', '#b5503a', '#8f3626', '#a3402c'].map((c) => new THREE.Color(c));
-  const r = rng(5);
+  const mesh = new THREE.InstancedMesh(geo, mat, totalInstances);
+  const palette = ['#a8432f', '#9c3b2b', '#b5503a', '#8f3626', '#a3402c', '#ba5842'].map((c) => new THREE.Color(c));
+  const r = rng(19);
   let idx = 0;
   const M = new THREE.Matrix4();
+  const pos = new THREE.Vector3();
+  const rot = new THREE.Euler();
+  const q = new THREE.Quaternion();
+  const scale = new THREE.Vector3(1, 1, 1);
+
   for (const s of [-1, 1]) {
-    const S = slabMatrix(s);
-    for (let i = 0; i < rows; i++) {
-      const local = composeMatrix([s * (SLAB_LEN / 2 - 0.2 - i * 0.34), SLAB_T / 2 + 0.03, 0], [0, 0, s * 0.09]);
-      M.multiplyMatrices(S, local);
+    for (let i = 0; i < rowsPerSide; i++) {
+      const t = i / (rowsPerSide - 1);
+      // Place from eave inward toward ridge
+      const xRight = EAVE_X - t * (EAVE_X - 0.28);
+      const x = s * xRight;
+      const y = getRoofY(x) + 0.035;
+      const slope = getRoofSlope(x);
+      // Shingle tilt for cartoon lap step
+      const tilt = slope + (s === 1 ? 0.07 : -0.07);
+
+      pos.set(x, y, ROOF_ZC);
+      rot.set(0, 0, tilt);
+      q.setFromEuler(rot);
+      M.compose(pos, q, scale);
+
       mesh.setMatrixAt(idx, M);
       mesh.setColorAt(idx, palette[Math.floor(r() * palette.length)]);
       idx++;
     }
   }
+
   mesh.instanceMatrix.needsUpdate = true;
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   mesh.receiveShadow = true;

@@ -26,35 +26,75 @@ function canvasTex(key: string, w: number, h: number, draw: (ctx: CanvasRenderin
   return tex;
 }
 
-/** Horizontal lap siding: 8 boards per tile (tile = 1.6 m -> 0.2 m boards). */
+/** Horizontal lap siding: 8 boards per tile (tile = 1.6 m -> 0.2 m boards) with tactile cartoon bevels and woodgrain. */
 export function sidingTexture() {
-  return canvasTex('siding', 256, 256, (ctx) => {
-    const r = rng(7);
+  return canvasTex('siding_v2', 512, 512, (ctx) => {
+    const r = rng(103);
     const rows = 8;
-    const bh = 256 / rows;
+    const bh = 512 / rows;
+
+    // Base background tone
+    ctx.fillStyle = '#b87848';
+    ctx.fillRect(0, 0, 512, 512);
+
     for (let i = 0; i < rows; i++) {
       const y = i * bh;
-      const shade = Math.floor(r() * 14) - 7;
-      ctx.fillStyle = `rgb(${196 + shade}, ${138 + shade}, ${92 + shade})`;
-      ctx.fillRect(0, y, 256, bh);
-      // grain
-      for (let g = 0; g < 10; g++) {
-        ctx.strokeStyle = `rgba(110, 62, 30, ${0.05 + r() * 0.08})`;
-        ctx.lineWidth = 1;
-        const gy = y + 3 + r() * (bh - 8);
+      const shade = Math.floor(r() * 18) - 9;
+      // Warm storybook cedar / amber plank tones
+      ctx.fillStyle = `rgb(${204 + shade}, ${145 + shade}, ${96 + Math.round(shade * 0.7)})`;
+      ctx.fillRect(0, y, 512, bh);
+
+      // Stylized hand-hewn subtle undulating grain whorls
+      const grainCount = 9;
+      for (let g = 0; g < grainCount; g++) {
+        ctx.strokeStyle = `rgba(95, 48, 18, ${0.05 + r() * 0.09})`;
+        ctx.lineWidth = 1.5 + r() * 1.5;
+        const gy = y + 6 + r() * (bh - 14);
         ctx.beginPath();
         ctx.moveTo(0, gy);
-        ctx.lineTo(256, gy + (r() * 2 - 1));
+        const cp1x = 128 + (r() - 0.5) * 40;
+        const cp1y = gy + (r() - 0.5) * 6;
+        const cp2x = 384 + (r() - 0.5) * 40;
+        const cp2y = gy + (r() - 0.5) * 6;
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, 512, gy + (r() * 3 - 1.5));
         ctx.stroke();
       }
-      // lap shadow at the bottom of each board + highlight at the top
-      const grad = ctx.createLinearGradient(0, y + bh - 9, 0, y + bh);
-      grad.addColorStop(0, 'rgba(60, 30, 10, 0)');
-      grad.addColorStop(1, 'rgba(60, 30, 10, 0.55)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, y + bh - 9, 256, 9);
-      ctx.fillStyle = 'rgba(255, 230, 190, 0.25)';
-      ctx.fillRect(0, y, 256, 2);
+
+      // Storybook wooden pegs / nails at plank ends
+      for (const px of [24 + r() * 10, 488 - r() * 10]) {
+        if (r() > 0.3) {
+          const py = y + bh / 2 + (r() - 0.5) * 4;
+          // Peg shadow & highlight
+          ctx.fillStyle = 'rgba(50, 22, 8, 0.45)';
+          ctx.beginPath();
+          ctx.arc(px, py + 1, 3.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(245, 215, 175, 0.55)';
+          ctx.beginPath();
+          ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Chunky 3D lap drop shadow at the bottom of each plank
+      const shadowH = 14;
+      const dropGrad = ctx.createLinearGradient(0, y + bh - shadowH, 0, y + bh);
+      dropGrad.addColorStop(0, 'rgba(45, 20, 8, 0)');
+      dropGrad.addColorStop(0.7, 'rgba(45, 20, 8, 0.45)');
+      dropGrad.addColorStop(1, 'rgba(45, 20, 8, 0.72)');
+      ctx.fillStyle = dropGrad;
+      ctx.fillRect(0, y + bh - shadowH, 512, shadowH);
+
+      // Deep groove line at the joint
+      ctx.fillStyle = 'rgba(35, 14, 5, 0.85)';
+      ctx.fillRect(0, y + bh - 2, 512, 2.5);
+
+      // Warm sunlit bevel highlight at the top of the plank
+      const hiGrad = ctx.createLinearGradient(0, y, 0, y + 6);
+      hiGrad.addColorStop(0, 'rgba(255, 242, 215, 0.55)');
+      hiGrad.addColorStop(1, 'rgba(255, 242, 215, 0)');
+      ctx.fillStyle = hiGrad;
+      ctx.fillRect(0, y, 512, 6);
     }
   });
 }
@@ -92,34 +132,67 @@ export function floorTexture() {
   });
 }
 
-/** Rustic fieldstone with mortar joints. Tile = 1.2 m. */
+/** Stylized cartoon cobblestone / riverstone foundation with pillowed 3D relief. Tile = 1.2 m. */
 export function stoneTexture() {
-  return canvasTex('fieldstone', 256, 256, (ctx) => {
-    const r = rng(23);
-    ctx.fillStyle = '#9a9184';
-    ctx.fillRect(0, 0, 256, 256);
+  return canvasTex('fieldstone_v2', 512, 512, (ctx) => {
+    const r = rng(88);
+    // Dark earthy mortar joint background
+    ctx.fillStyle = '#4c453d';
+    ctx.fillRect(0, 0, 512, 512);
+
     const rows = 6;
-    const rh = 256 / rows;
+    const rh = 512 / rows;
+
     for (let i = 0; i < rows; i++) {
-      let x = i % 2 === 0 ? 0 : -24;
-      while (x < 256) {
-        const w = 38 + r() * 34;
-        const tone = Math.floor(r() * 40);
-        ctx.fillStyle = `rgb(${128 + tone}, ${120 + tone}, ${108 + tone})`;
-        const rx = x + 2;
-        const ry = i * rh + 2;
-        const rw = w - 4;
-        const rhh = rh - 4;
-        const rad = 7;
-        ctx.beginPath();
-        ctx.moveTo(rx + rad, ry);
-        ctx.arcTo(rx + rw, ry, rx + rw, ry + rhh, rad);
-        ctx.arcTo(rx + rw, ry + rhh, rx, ry + rhh, rad);
-        ctx.arcTo(rx, ry + rhh, rx, ry, rad);
-        ctx.arcTo(rx, ry, rx + rw, ry, rad);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.12)';
-        ctx.fillRect(rx + 4, ry + 3, rw - 8, 3);
+      // Offset alternating rows by half stone width
+      let x = (i % 2 === 0 ? 0 : -45) - 30;
+      while (x < 550) {
+        const w = 72 + r() * 48;
+        const rx = x + 4;
+        const ry = i * rh + 4;
+        const rw = w - 8;
+        const rhh = rh - 8;
+        const rad = 14;
+
+        if (rw > 12 && rhh > 12) {
+          // Palette: warm slate, riverbed buff, subtle mossy stone
+          const tone = Math.floor(r() * 32);
+          const mossTint = r() > 0.7 ? 8 : 0;
+          const baseR = 140 + tone;
+          const baseG = 132 + tone + mossTint;
+          const baseB = 120 + tone;
+
+          // Pillowed 3D volume gradient for each stone
+          const stoneGrad = ctx.createRadialGradient(
+            rx + rw * 0.38,
+            ry + rhh * 0.32,
+            rad * 0.4,
+            rx + rw * 0.5,
+            ry + rhh * 0.5,
+            rw * 0.65
+          );
+          stoneGrad.addColorStop(0, `rgb(${baseR + 28}, ${baseG + 28}, ${baseB + 24})`);
+          stoneGrad.addColorStop(0.65, `rgb(${baseR}, ${baseG}, ${baseB})`);
+          stoneGrad.addColorStop(1, `rgb(${baseR - 35}, ${baseG - 35}, ${baseB - 32})`);
+
+          // Rounded pebble path
+          ctx.beginPath();
+          ctx.roundRect(rx, ry, rw, rhh, rad);
+          ctx.fillStyle = stoneGrad;
+          ctx.fill();
+
+          // Ambient occlusion drop shadow under the stone inside mortar
+          ctx.strokeStyle = 'rgba(25, 20, 16, 0.5)';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+
+          // Soft sunlit crown highlight on top rim of the pebble
+          ctx.beginPath();
+          ctx.roundRect(rx + 5, ry + 4, rw - 10, rhh * 0.35, [rad * 0.7, rad * 0.7, 0, 0]);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+          ctx.fill();
+        }
+
         x += w;
       }
     }
