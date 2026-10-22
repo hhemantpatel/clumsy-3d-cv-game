@@ -90,9 +90,14 @@ export const ZonePrompt: React.FC<ZonePromptProps> = ({
 
     // 1. Camera facing check: is camera looking towards the prop?
     group.getWorldPosition(_propPos);
+    _propPos.x += groundOffset ? groundOffset[0] : position[0];
+    _propPos.y += position[1];
+    _propPos.z += groundOffset ? groundOffset[2] : position[2];
+
     state.camera.getWorldDirection(_camDir);
     _camToProp.subVectors(_propPos, state.camera.position).normalize();
     const camDot = _camDir.dot(_camToProp);
+    const cameraLooking = camDot > 0.45;
 
     // 2. Player facing check: is character facing generally towards the prop?
     let playerFacing = true;
@@ -104,18 +109,25 @@ export const ZonePrompt: React.FC<ZonePromptProps> = ({
       const toPropZ = _propPos.z - pz;
       const dist = Math.hypot(toPropX, toPropZ);
 
-      if (dist > 0.1) {
-        // Player forward vector (rot = PI faces negative Z)
-        const forwardX = -Math.sin(rot);
-        const forwardZ = -Math.cos(rot);
+      if (dist > 0.25) {
+        // Correct forward vector in Rust WASM physics coordinates:
+        // rot = 0     => sin(0)=0, cos(0)=1     => facing +Z (front yard gate & mailbox)
+        // rot = PI    => sin(PI)=0, cos(PI)=-1  => facing -Z (cottage & back wall)
+        // rot = PI/2  => sin(PI/2)=1, cos=0     => facing +X (automaton garden planter)
+        // rot = -PI/2 => sin(-PI/2)=-1, cos=0   => facing -X (skills bookcase & bench)
+        const forwardX = Math.sin(rot);
+        const forwardZ = Math.cos(rot);
         const playerDot = (forwardX * toPropX + forwardZ * toPropZ) / dist;
-        // If player is facing more than 75° away from the prop, do not show
-        if (playerDot < 0.25) playerFacing = false;
+
+        // Player must be generally facing towards the prop (playerDot < -0.1 means facing away / back turned)
+        if (playerDot < -0.1) {
+          playerFacing = false;
+        }
       }
     }
 
-    // Must satisfy: camera looking toward prop AND player facing prop
-    const shouldShow = camDot > 0.62 && playerFacing;
+    // Must satisfy: camera looking toward prop AND player facing toward prop
+    const shouldShow = cameraLooking && playerFacing;
     if (visible !== shouldShow) setVisible(shouldShow);
 
     // Animate ground ring
