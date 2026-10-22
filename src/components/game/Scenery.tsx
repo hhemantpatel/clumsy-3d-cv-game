@@ -1,828 +1,701 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
-import { RoundedBox } from '@react-three/drei';
-import { textureGen } from '../../utils/textures';
+import { GeoBuilder, PRIM, between, makeRng, taperedCyl, V3 } from './env/GeoBuilder';
+import { PALETTE } from './env/palette';
+import { getEnvMaterial, getGlowMaterial, makeEnvMesh } from './env/materials';
+import { addBirch, addDeciduousTree, addPine, addRock, addWillow, addFlowerClump } from './env/builders';
+import { bindWaterTime, createWaterMaterial } from './env/water';
 
 /**
- * Rich, alive countryside landscape with winding country road, river dock & rowboat,
- * arched footbridge, wooden farm cart & hay bales, cozy campsite, stone wishing well,
- * grazing sheep, weeping willows, birch trees, and drifting hot air balloon.
+ * Countryside around the yard: winding lane with split-rail fence and signpost, river with
+ * pier, rowboat, lily pads and an arched footbridge, hay bales & cart, campsite, wishing well,
+ * sheep, willows / birches / pine forest, rolling hills, mountains, windmill, cottages,
+ * hot-air balloon and drifting clouds.
+ *
+ * Draw calls: near static (shadowed) + far static + water + fire glow + windmill sails
+ * + boat + balloon + balloon glow + clouds = 9 (was ~450 separate meshes).
  */
+
+// ---------------------------------------------------------------------------
+// Shared layout curves
+// ---------------------------------------------------------------------------
+const RIVER_HALF = 6;
+function riverX(z: number): number {
+  return -30 + 0.182 * z + 1.6 * Math.sin(z * 0.045);
+}
+const ROAD_Z0 = 12.75;
+function roadProgress(z: number): number {
+  return (z - 12.8) / 39.2;
+}
+function roadX(z: number): number {
+  return Math.sin(roadProgress(z) * Math.PI * 1.5) * 6.5;
+}
+function roadWidth(z: number): number {
+  return 2.6 - Math.min(Math.max(roadProgress(z), 0), 1) * 0.4;
+}
+function slope(fn: (z: number) => number, z: number): number {
+  return (fn(z + 0.01) - fn(z - 0.01)) / 0.02;
+}
+
+/**
+ * Continuous ribbon along a centre-line x = cx(z), offsets measured perpendicular to the curve
+ * (so curves are smooth, no notched segments). uv.x = 0..1 across, uv.y = metres along.
+ */
+function ribbonGeometry(
+  cx: (z: number) => number, off0: number, off1: number, z0: number, z1: number, step: number, y: number,
+  widthScale: (z: number) => number = () => 1,
+): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  let n = 0;
+  for (let z = z0; z <= z1 + 1e-6; z += step) {
+    const s = slope(cx, z);
+    const len = Math.hypot(1, s);
+    const nx = 1 / len;
+    const nz = -s / len;
+    const ws = widthScale(z);
+    const x = cx(z);
+    pos.push(x + nx * off0 * ws, y, z + nz * off0 * ws, x + nx * off1 * ws, y, z + nz * off1 * ws);
+    uv.push(0, z, 1, z);
+    if (n > 0) {
+      const a = (n - 1) * 2;
+      idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
+    n++;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+// Shared special geometries
+const TENT = new THREE.CylinderGeometry(1, 1, 1, 3, 1, false, Math.PI / 2);
+const HALF_LOG = new THREE.CylinderGeometry(1, 1, 1, 8, 1, false, 0, Math.PI);
+const WHEEL = new THREE.TorusGeometry(1, 0.12, 5, 12);
+const BALLOON = new THREE.LatheGeometry(
+  [
+    [0.45, 0.0], [0.95, 0.6], [1.7, 1.7], [2.15, 2.8], [2.25, 3.4], [2.05, 4.1], [1.55, 4.7], [0.85, 5.05], [0.0, 5.2],
+  ].map(([x, y]) => new THREE.Vector2(x, y)),
+  12,
+);
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+const BALLOON_BASE: V3 = [42, 44, -22];
+const WINDMILL_BASE: V3 = [62, 6.6, -35];
+const WINDMILL_YAW = Math.atan2(-62, 35);
+const WINDMILL_SCALE = 1.6;
+const FIRE_POS: V3 = [32.6, 0.08, 16.5];
+
 export const Scenery: React.FC = () => {
-  const cloudsRef = useRef<THREE.Group>(null);
-  const windmillRef = useRef<THREE.Group>(null);
-  const waterRef = useRef<THREE.MeshStandardMaterial>(null);
+  const built = useMemo(() => buildScenery(), []);
+  const sailsRef = useRef<THREE.Mesh>(null);
   const boatRef = useRef<THREE.Group>(null);
   const balloonRef = useRef<THREE.Group>(null);
+  const cloudsRef = useRef<THREE.Group>(null);
+  const fireRef = useRef<THREE.Mesh>(null);
 
-  const waterNormal = useMemo(() => {
-    return textureGen.getWaterNormal();
-  }, []);
+  useEffect(() => () => {
+    built.near.geometry.dispose();
+    built.far.geometry.dispose();
+    built.waterGeo.dispose();
+    built.waterMat.dispose();
+    built.fireGeo.dispose();
+    built.sailsGeo.dispose();
+    built.boatGeo.dispose();
+    built.balloonGeo.dispose();
+    built.balloonGlowGeo.dispose();
+    (built.clouds.material as THREE.Material).dispose();
+  }, [built]);
 
-  // Animate drifting clouds, windmill, water, boat bobbing, and hot air balloon
-  useFrame((_, delta) => {
-    const t = performance.now() * 0.001;
-
-    if (cloudsRef.current) {
-      cloudsRef.current.children.forEach((cloud, i) => {
-        cloud.position.x += delta * (0.8 + (i % 3) * 0.35);
-        if (cloud.position.x > 110) {
-          cloud.position.x = -110;
-        }
-      });
-    }
-
-    if (windmillRef.current) {
-      windmillRef.current.rotation.z += delta * 1.2;
-    }
-
-    if (waterNormal) {
-      waterNormal.offset.y += delta * 0.10;
-      waterNormal.offset.x += delta * 0.03;
-    }
-
-    // Gentle boat bobbing in water
+  // Single animation hook for all scenery motion (no allocations)
+  useFrame(({ clock }, delta) => {
+    const t = clock.elapsedTime;
+    if (sailsRef.current) sailsRef.current.rotation.z += delta * 0.9;
     if (boatRef.current) {
-      boatRef.current.position.y = 0.06 + Math.sin(t * 1.8) * 0.025;
+      boatRef.current.position.y = 0.04 + Math.sin(t * 1.8) * 0.025;
       boatRef.current.rotation.z = Math.sin(t * 1.4) * 0.04;
       boatRef.current.rotation.x = Math.cos(t * 1.2) * 0.03;
     }
-
-    // Gentle hot air balloon drift
     if (balloonRef.current) {
-      balloonRef.current.position.y = 44 + Math.sin(t * 0.5) * 1.2;
-      balloonRef.current.position.x = 42 + Math.cos(t * 0.2) * 2.5;
+      balloonRef.current.position.y = BALLOON_BASE[1] + Math.sin(t * 0.5) * 1.2;
+      balloonRef.current.position.x = BALLOON_BASE[0] + Math.cos(t * 0.2) * 2.5;
+      balloonRef.current.rotation.y = t * 0.05;
+    }
+    if (cloudsRef.current) cloudsRef.current.rotation.y = t * 0.004;
+    if (fireRef.current) {
+      const f = 1 + Math.sin(t * 13) * 0.08 + Math.sin(t * 7.3) * 0.06;
+      fireRef.current.scale.set(1 + (f - 1) * 0.5, f, 1 + (f - 1) * 0.5);
     }
   });
 
-  // Distant mountain ridges
-  const mountains = useMemo(() => {
-    const list: { pos: [number, number, number]; scale: [number, number, number]; rot: number }[] = [];
-    const count = 22;
+  const envMat = getEnvMaterial();
+  const glowMat = getGlowMaterial();
+
+  return (
+    <group>
+      <primitive object={built.near} />
+      <primitive object={built.far} />
+      <mesh geometry={built.waterGeo} material={built.waterMat} />
+      <mesh ref={fireRef} geometry={built.fireGeo} material={glowMat} position={FIRE_POS} />
+
+      {/* Windmill sails (body is part of the far mesh) */}
+      <group
+        position={[
+          WINDMILL_BASE[0] + Math.sin(WINDMILL_YAW) * 1.2 * WINDMILL_SCALE,
+          WINDMILL_BASE[1] + 4.6 * WINDMILL_SCALE,
+          WINDMILL_BASE[2] + Math.cos(WINDMILL_YAW) * 1.2 * WINDMILL_SCALE,
+        ]}
+        rotation={[0, WINDMILL_YAW, 0]}
+        scale={WINDMILL_SCALE}
+      >
+        <mesh ref={sailsRef} geometry={built.sailsGeo} material={envMat} />
+      </group>
+
+      <group ref={boatRef} position={built.boatPos} rotation={[0, 0.12, 0]}>
+        <mesh geometry={built.boatGeo} material={envMat} />
+      </group>
+
+      <group ref={balloonRef} position={BALLOON_BASE} scale={1.8}>
+        <mesh geometry={built.balloonGeo} material={envMat} />
+        <mesh geometry={built.balloonGlowGeo} material={glowMat} />
+      </group>
+
+      <group ref={cloudsRef}>
+        <primitive object={built.clouds} />
+      </group>
+    </group>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Builders
+// ---------------------------------------------------------------------------
+function buildScenery() {
+  const near = new GeoBuilder(11);
+  const far = new GeoBuilder(23);
+  const fire = new GeoBuilder(5);
+
+  buildRoad(near);
+  buildSignpost(near, 3.4, 14.6);
+  const well = new GeoBuilder(31);
+  buildWell(well);
+  near.append(well, { pos: [-16, 0, 16], rot: [0, 0.5, 0] });
+
+  buildRiverBanks(far);
+  const boatPos = buildDock(far);
+  const bridgeZ = -22;
+  const bridge = new GeoBuilder(41);
+  buildBridge(bridge);
+  far.append(bridge, { pos: [riverX(bridgeZ), 0, bridgeZ], rot: [0, Math.atan(slope(riverX, bridgeZ)), 0] });
+
+  const hay = new GeoBuilder(51);
+  buildHayAndCart(hay);
+  far.append(hay, { pos: [18, 0, 22] });
+
+  const camp = new GeoBuilder(61);
+  buildCampsite(camp, fire);
+  far.append(camp, { pos: [30, 0, 16] });
+
+  const sheep = new GeoBuilder(71);
+  buildSheep(sheep, false);
+  const sheepEating = new GeoBuilder(72);
+  buildSheep(sheepEating, true);
+  far.append(sheep, { pos: [-18, 0, 32], rot: [0, 0.6, 0], scale: 0.9 });
+  far.append(sheepEating, { pos: [-15, 0, 35], rot: [0, -0.8, 0], scale: 0.9 });
+  far.append(sheep, { pos: [24, 0, 36], rot: [0, -0.4, 0], scale: 0.9 });
+  far.append(sheepEating, { pos: [27, 0, 33], rot: [0, 1.2, 0], scale: 0.9 });
+  far.append(sheepEating, { pos: [21, 0, 39], rot: [0, 2.4, 0], scale: 0.8 });
+
+  buildTrees(far);
+  buildLandscape(far);
+
+  const windmill = new GeoBuilder(81);
+  buildWindmillBody(windmill);
+  far.append(windmill, { pos: WINDMILL_BASE, rot: [0, WINDMILL_YAW, 0], scale: WINDMILL_SCALE });
+
+  const cottages: [number, number, number, string, string][] = [
+    [52, 42, 0.3, PALETTE.roofRed, PALETTE.cream],
+    [59, 38, -0.2, PALETTE.roofBrown, '#eef0ec'],
+    [56, 48, 0.6, PALETTE.roofBlue, '#f6e3e3'],
+  ];
+  for (const [x, z, yaw, roof, wall] of cottages) {
+    const c = new GeoBuilder(Math.floor(x * 7 + z));
+    buildCottage(c, roof, wall);
+    far.append(c, { pos: [x, 0, z], rot: [0, yaw, 0], scale: 1.4 });
+  }
+
+  // Meshes
+  const nearMesh = makeEnvMesh(near.build(), { castShadow: true, receiveShadow: true });
+  nearMesh.name = 'scenery-near';
+  const farMesh = makeEnvMesh(far.build());
+  farMesh.name = 'scenery-far';
+
+  const waterGeo = ribbonGeometry(riverX, -RIVER_HALF, RIVER_HALF, -110, 110, 2, 0.05);
+  const waterMat = createWaterMaterial(RIVER_HALF * 2);
+  bindWaterTime(waterMat);
+
+  const sails = new GeoBuilder(91);
+  buildSails(sails);
+  const boat = new GeoBuilder(92);
+  buildBoat(boat);
+  const balloon = new GeoBuilder(93);
+  const balloonGlow = new GeoBuilder(94);
+  buildBalloon(balloon, balloonGlow);
+
+  return {
+    near: nearMesh,
+    far: farMesh,
+    waterGeo,
+    waterMat,
+    fireGeo: fire.build(),
+    sailsGeo: sails.build(),
+    boatGeo: boat.build(),
+    boatPos,
+    balloonGeo: balloon.build(),
+    balloonGlowGeo: balloonGlow.build(),
+    clouds: buildClouds(),
+  };
+}
+
+// --- Lane ------------------------------------------------------------------
+function buildRoad(b: GeoBuilder): void {
+  const r = b.rng;
+  const zEnd = 80;
+  b.add(ribbonGeometry(roadX, -0.5, 0.5, ROAD_Z0, zEnd, 0.5, 0.02, roadWidth), {
+    color: PALETTE.dirt, facetJitter: 0.07,
+  });
+  // Soft darker wheel ruts and a grassy crown down the middle
+  for (const o of [-0.28, 0.28]) {
+    b.add(ribbonGeometry(roadX, o - 0.06, o + 0.06, ROAD_Z0 + 0.4, zEnd, 0.5, 0.024, roadWidth), {
+      color: PALETTE.dirtDark, facetJitter: 0.05,
+    });
+  }
+  b.add(ribbonGeometry(roadX, -0.05, 0.05, ROAD_Z0 + 2.5, zEnd, 0.5, 0.028, roadWidth), {
+    color: PALETTE.meadowB, facetJitter: 0.1,
+  });
+  // Pebbles along both verges
+  for (let z = ROAD_Z0 + 0.6; z < 60; z += 0.9 + r() * 0.8) {
+    const side = r() < 0.5 ? -1 : 1;
+    const s = slope(roadX, z);
+    const len = Math.hypot(1, s);
+    const off = side * (roadWidth(z) / 2 + 0.12 + r() * 0.2);
+    addRock(b, roadX(z) + off / len, z - (s * off) / len, 0.06 + r() * 0.08);
+  }
+  // Split-rail fence along the left verge
+  const posts: V3[] = [];
+  for (let z = 19; z <= 49; z += 3) {
+    const s = slope(roadX, z);
+    const len = Math.hypot(1, s);
+    const off = -(roadWidth(z) / 2 + 0.9);
+    posts.push([roadX(z) + off / len, 0, z - (s * off) / len]);
+  }
+  posts.forEach((p, i) => {
+    b.add(taperedCyl(0.8, 6), { pos: [p[0], 0.5, p[2]], rot: [0, r(), 0], scale: [0.08, 1.0, 0.08], color: PALETTE.woodDark, facetJitter: 0.08 });
+    if (i === 0) return;
+    const q = posts[i - 1];
+    for (const y of [0.42, 0.78]) {
+      const seg = between([q[0], y + (r() - 0.5) * 0.04, q[2]], [p[0], y + (r() - 0.5) * 0.04, p[2]]);
+      b.add(PRIM.cyl6, { pos: seg.pos, rot: seg.rot, scale: [0.045, seg.len + 0.2, 0.045], color: PALETTE.wood, facetJitter: 0.06 });
+    }
+  });
+}
+
+function buildSignpost(b: GeoBuilder, x: number, z: number): void {
+  addRock(b, x, z, 0.28, 0.7);
+  b.add(taperedCyl(0.85, 6), { pos: [x, 1.0, z], scale: [0.075, 2.0, 0.075], color: PALETTE.woodDark, facetJitter: 0.06 });
+  b.add(PRIM.cone4, { pos: [x, 2.06, z], scale: [0.1, 0.12, 0.1], color: PALETTE.woodDark });
+  const signs: [number, number, number, string][] = [
+    [1.75, 0.95, Math.PI, PALETTE.woodLight], // toward the river / west
+    [1.42, 0.85, 0.15, PALETTE.wood], // toward the campsite / east
+    [1.12, 0.75, -Math.PI / 2 + 0.2, PALETTE.woodLight], // up the lane
+  ];
+  for (const [y, w, yaw, color] of signs) {
+    const dx = Math.cos(yaw);
+    const dz = -Math.sin(yaw);
+    b.add(PRIM.box, { pos: [x + dx * (w / 2 + 0.05), y, z + dz * (w / 2 + 0.05)], rot: [0, yaw, 0], scale: [w, 0.19, 0.045], color, facetJitter: 0.05 });
+    b.add(PRIM.cone4, {
+      pos: [x + dx * (w + 0.1), y, z + dz * (w + 0.1)], rot: [0, yaw, -Math.PI / 2], scale: [0.135, 0.14, 0.032], color,
+    });
+  }
+}
+
+function buildWell(b: GeoBuilder): void {
+  const r = b.rng;
+  // Stacked river-stone wall
+  for (let ring = 0; ring < 3; ring++) {
+    const count = 11;
     for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      const dist = 95 + ((i * 37) % 25);
-      const x = Math.cos(angle) * dist;
-      const z = Math.sin(angle) * dist;
-      const height = 22 + ((i * 23) % 18);
-      const width = 24 + ((i * 19) % 16);
-      list.push({
-        pos: [x, height / 2 - 3, z],
-        scale: [width, height, width],
-        rot: angle + ((i % 4) * 0.25),
+      const a = ((i + ring * 0.5) / count) * Math.PI * 2;
+      b.add(PRIM.dodeca, {
+        pos: [Math.cos(a) * 0.85, 0.15 + ring * 0.27, Math.sin(a) * 0.85], rot: [r(), -a, r()],
+        scale: [0.2, 0.15, 0.27], color: [PALETTE.stone, PALETTE.stoneLight, PALETTE.stoneDark][(i + ring) % 3],
+        facetJitter: 0.1, wobble: 0.12,
       });
     }
-    return list;
-  }, []);
-
-  // Middle-distance rolling hills
-  const rollingHills = useMemo(() => {
-    const list: { pos: [number, number, number]; scale: [number, number, number]; color: string }[] = [];
-    const hillData: [number, number, number, number, number, string][] = [
-      [-65, -70, 35, 12, 35, '#166534'],
-      [70, -75, 40, 14, 40, '#15803d'],
-      [-75, 20, 38, 11, 38, '#166534'],
-      [78, 30, 42, 13, 42, '#15803d'],
-      [-50, 80, 36, 10, 36, '#166534'],
-      [55, 82, 38, 11, 38, '#15803d'],
-      [0, -85, 45, 15, 45, '#14532d'],
-      [0, 88, 42, 12, 42, '#166534'],
-      [-82, -30, 36, 10, 36, '#15803d'],
-      [85, -25, 40, 12, 40, '#166534'],
-    ];
-    hillData.forEach(([x, z, sx, sy, sz, color]) => {
-      list.push({ pos: [x, sy / 2 - 4, z], scale: [sx, sy, sz], color });
-    });
-    return list;
-  }, []);
-
-  return (
-    <group position={[0, 0, 0]}>
-      {/* 1. Natural Flowing River with Pebble Banks */}
-      <mesh receiveShadow position={[-30, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
-        <planeGeometry args={[16, 180]} />
-        <meshStandardMaterial color="#57534e" roughness={0.95} metalness={0.0} />
-      </mesh>
-      <mesh receiveShadow position={[-23, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
-        <planeGeometry args={[4.5, 180]} />
-        <meshStandardMaterial color="#78716c" roughness={0.9} metalness={0.0} />
-      </mesh>
-      <mesh receiveShadow position={[-37, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
-        <planeGeometry args={[4.5, 180]} />
-        <meshStandardMaterial color="#78716c" roughness={0.9} metalness={0.0} />
-      </mesh>
-      <mesh receiveShadow position={[-30, 0.045, 0]} rotation={[-Math.PI / 2, 0, 0.18]}>
-        <planeGeometry args={[12, 175]} />
-        <meshStandardMaterial
-          ref={waterRef}
-          color="#0284c7"
-          normalMap={waterNormal}
-          roughness={0.08}
-          metalness={0.2}
-          transparent
-          opacity={0.88}
-        />
-      </mesh>
-
-      {/* 2. Country Road from Front Gate winding into the Hills */}
-      <CountryRoad />
-
-      {/* 3. Wooden Fingerpost / Road Signpost */}
-      <RoadSignpost position={[2.4, 0, 14.5]} />
-
-      {/* 4. River Wooden Pier with Moored Rowboat & Fishing Rod */}
-      <RiverDock boatRef={boatRef} />
-
-      {/* 5. Arched Wooden Footbridge across the River */}
-      <RiverBridge position={[-30, 0.2, -22]} rotation={[0, 0.18, 0]} />
-
-      {/* 6. Countryside Hay Bales & Antique Wooden Cart */}
-      <HayBalesAndCart position={[18, 0, 22]} />
-
-      {/* 7. Cozy Meadow Campsite with Canvas Tent & Campfire */}
-      <MeadowCampsite position={[30, 0, 16]} />
-
-      {/* 8. Rustic Stone Wishing Well with Wooden Canopy */}
-      <WishingWell position={[-16, 0, 16]} />
-
-      {/* 9. Peaceful Grazing Sheep in the Pasture */}
-      <GrazingSheep position={[-18, 0, 32]} rotation={[0, 0.6, 0]} />
-      <GrazingSheep position={[-15, 0, 35]} rotation={[0, -0.8, 0]} isEating />
-      <GrazingSheep position={[24, 0, 36]} rotation={[0, -0.4, 0]} />
-      <GrazingSheep position={[27, 0, 33]} rotation={[0, 1.2, 0]} isEating />
-
-      {/* 10. Floating Colorful Hot Air Balloon in the Sky */}
-      <HotAirBalloon ref={balloonRef} position={[42, 44, -22]} />
-
-      {/* 11. Countryside Trees (Weeping Willows by River & Birch Trees in Meadow) */}
-      <CountrysideTrees />
-
-      {/* 12. Rolling Countryside Hills */}
-      {rollingHills.map((hill, i) => (
-        <mesh key={i} receiveShadow position={hill.pos} scale={hill.scale}>
-          <sphereGeometry args={[1, 24, 16]} />
-          <meshStandardMaterial color={hill.color} roughness={0.95} metalness={0.0} />
-        </mesh>
-      ))}
-
-      {/* 13. Distant Mountain Peaks on Horizon */}
-      {mountains.map((m, i) => (
-        <group key={i} position={m.pos} scale={m.scale} rotation={[0, m.rot, 0]}>
-          <mesh  receiveShadow>
-            <coneGeometry args={[1, 1, 7]} />
-            <meshStandardMaterial
-              color={i % 2 === 0 ? '#14532d' : '#0f3d21'}
-              roughness={0.95}
-              metalness={0.0}
-            />
-          </mesh>
-          <mesh position={[0, 0.3, 0]} scale={[0.55, 0.45, 0.55]}>
-            <coneGeometry args={[1, 1, 7]} />
-            <meshStandardMaterial color="#064e3b" roughness={0.95} metalness={0.0} />
-          </mesh>
-        </group>
-      ))}
-
-      {/* 14. East Hill Windmill */}
-      <group position={[62, 7, -35]} scale={[1.6, 1.6, 1.6]}>
-        <mesh  receiveShadow position={[0, 2.5, 0]}>
-          <cylinderGeometry args={[1.0, 1.5, 5.0, 8]} />
-          <meshStandardMaterial color="#f8fafc" roughness={0.75} />
-        </mesh>
-        <mesh  position={[0, 5.6, 0]}>
-          <coneGeometry args={[1.2, 1.3, 8]} />
-          <meshStandardMaterial color="#991b1b" roughness={0.6} />
-        </mesh>
-        <group ref={windmillRef} position={[0, 4.6, 1.15]}>
-          <mesh position={[0, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
-            <cylinderGeometry args={[0.18, 0.18, 0.25, 8]} />
-            <meshStandardMaterial color="#78350f" />
-          </mesh>
-          {[0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].map((bladeRot, bIdx) => (
-            <mesh key={bIdx} position={[0, 0, 0]} rotation={[0, 0, bladeRot]}>
-              <boxGeometry args={[0.24, 3.2, 0.04]} />
-              <meshStandardMaterial color="#fde68a" roughness={0.6} />
-            </mesh>
-          ))}
-        </group>
-      </group>
-
-      {/* 15. Distant Village Cottages */}
-      <group position={[52, 0, 42]}>
-        <DistantCottage position={[0, 0, 0]} roofColor="#991b1b" wallColor="#fef3c7" />
-        <DistantCottage position={[7, 0, -4]} roofColor="#713f12" wallColor="#f1f5f9" />
-        <DistantCottage position={[4, 0, 6]} roofColor="#312e81" wallColor="#fce7f3" />
-      </group>
-
-      {/* 16. Drifting Clouds */}
-      <group ref={cloudsRef}>
-        <CloudItem position={[-65, 24, -40]} scale={1.9} />
-        <CloudItem position={[-25, 30, -70]} scale={2.5} />
-        <CloudItem position={[40, 26, -50]} scale={2.1} />
-        <CloudItem position={[-50, 28, 30]} scale={2.0} />
-        <CloudItem position={[55, 27, 35]} scale={2.3} />
-        <CloudItem position={[15, 34, 70]} scale={2.6} />
-        <CloudItem position={[-75, 22, 55]} scale={2.8} />
-        <CloudItem position={[70, 32, -25]} scale={2.2} />
-      </group>
-    </group>
-  );
-};
-
-// Curving Country Dirt Road leading away from front gate
-const CountryRoad: React.FC = () => {
-  const roadSegments = useMemo(() => {
-    const list: { pos: [number, number, number]; rot: number; width: number }[] = [];
-    for (let z = 12.8; z <= 52; z += 2.2) {
-      const progress = (z - 12.8) / 39.2;
-      const x = Math.sin(progress * Math.PI * 1.5) * 6.5;
-      const nextX = Math.sin(((progress + 0.05) * Math.PI * 1.5)) * 6.5;
-      const rot = Math.atan2(nextX - x, 2.2);
-      list.push({ pos: [x, 0.015, z], rot, width: 2.6 - progress * 0.4 });
-    }
-    return list;
-  }, []);
-
-  return (
-    <group>
-      {roadSegments.map((seg, idx) => (
-        <group key={idx} position={seg.pos} rotation={[0, seg.rot, 0]}>
-          <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[seg.width, 2.4]} />
-            <meshStandardMaterial color="#a88b68" roughness={0.95} />
-          </mesh>
-          {/* Subtle roadside pebbles */}
-          {idx % 3 === 0 && (
-            <mesh position={[seg.width / 2 + 0.15, 0.03, 0]}>
-              <sphereGeometry args={[0.08, 6, 6]} />
-              <meshStandardMaterial color="#78716c" roughness={0.9} />
-            </mesh>
-          )}
-        </group>
-      ))}
-
-      {/* Rustic Split-Rail Fencing along road edge */}
-      {[16, 22, 28, 34, 40].map((fz, i) => (
-        <group key={i} position={[-2.2 - Math.sin(i * 0.5) * 1.5, 0, fz]}>
-          <mesh position={[0, 0.45, 0]}>
-            <cylinderGeometry args={[0.07, 0.08, 0.9, 6]} />
-            <meshStandardMaterial color="#78350f" roughness={0.9} />
-          </mesh>
-          <mesh position={[0.8, 0.65, 0.8]} rotation={[0, 0.6, 0]}>
-            <boxGeometry args={[1.8, 0.08, 0.06]} />
-            <meshStandardMaterial color="#92400e" roughness={0.85} />
-          </mesh>
-          <mesh position={[0.8, 0.35, 0.8]} rotation={[0, 0.6, 0]}>
-            <boxGeometry args={[1.8, 0.08, 0.06]} />
-            <meshStandardMaterial color="#92400e" roughness={0.85} />
-          </mesh>
-        </group>
-      ))}
-    </group>
-  );
-};
-
-// Wooden Fingerpost / Road Signpost outside gate
-const RoadSignpost: React.FC<{ position: [number, number, number] }> = ({ position }) => {
-  return (
-    <group position={position}>
-      {/* Vertical Post */}
-      <mesh  position={[0, 0.9, 0]}>
-        <cylinderGeometry args={[0.07, 0.08, 1.8, 8]} />
-        <meshStandardMaterial color="#78350f" roughness={0.8} />
-      </mesh>
-      {/* Stone base footing */}
-      <mesh position={[0, 0.1, 0]}>
-        <sphereGeometry args={[0.25, 8, 8]} />
-        <meshStandardMaterial color="#64748b" roughness={0.9} />
-      </mesh>
-      {/* Sign 1: IIT Jodhpur (Pointing Left) */}
-      <group position={[-0.4, 1.55, 0]} rotation={[0, 0.25, 0]}>
-        <mesh >
-          <boxGeometry args={[0.9, 0.2, 0.04]} />
-          <meshStandardMaterial color="#b45309" roughness={0.7} />
-        </mesh>
-        <mesh position={[-0.45, 0, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.14, 0.14, 0.04]} />
-          <meshStandardMaterial color="#b45309" roughness={0.7} />
-        </mesh>
-      </group>
-      {/* Sign 2: River Pier (Pointing Right) */}
-      <group position={[0.4, 1.25, 0]} rotation={[0, -0.4, 0]}>
-        <mesh >
-          <boxGeometry args={[0.85, 0.18, 0.04]} />
-          <meshStandardMaterial color="#92400e" roughness={0.7} />
-        </mesh>
-        <mesh position={[0.42, 0, 0]} rotation={[0, 0, Math.PI / 4]}>
-          <boxGeometry args={[0.13, 0.13, 0.04]} />
-          <meshStandardMaterial color="#92400e" roughness={0.7} />
-        </mesh>
-      </group>
-      {/* Sign 3: Windmill Ridge (Pointing South) */}
-      <group position={[0.35, 0.95, 0.05]} rotation={[0, 0.8, 0]}>
-        <mesh >
-          <boxGeometry args={[0.8, 0.16, 0.04]} />
-          <meshStandardMaterial color="#78350f" roughness={0.7} />
-        </mesh>
-      </group>
-    </group>
-  );
-};
-
-// River Wooden Pier with Moored Rowboat, Fishing Bucket, and Water Lilies
-const RiverDock: React.FC<{ boatRef: React.RefObject<THREE.Group> }> = ({ boatRef }) => {
-  return (
-    <group position={[-23.5, 0, 5]}>
-      {/* Wooden Plank Pier / Jetty */}
-      <group position={[-2.2, 0.2, 0]}>
-        {/* Pier Deck Planks */}
-        <RoundedBox args={[4.8, 0.12, 1.8]} radius={0.03} smoothness={3}  receiveShadow>
-          <meshStandardMaterial color="#78350f" roughness={0.8} />
-        </RoundedBox>
-        {/* Supporting Timber Pilings in Water */}
-        {[[-2.1, -0.8], [-2.1, 0.8], [0, -0.8], [0, 0.8], [2.1, -0.8], [2.1, 0.8]].map(([px, pz], idx) => (
-          <mesh key={idx} position={[px, -0.35, pz]} >
-            <cylinderGeometry args={[0.09, 0.09, 0.8, 8]} />
-            <meshStandardMaterial color="#451a03" roughness={0.9} />
-          </mesh>
-        ))}
-        {/* Mooring Bollards */}
-        <mesh position={[-2.2, 0.2, -0.7]} >
-          <cylinderGeometry args={[0.08, 0.09, 0.35, 8]} />
-          <meshStandardMaterial color="#1e293b" metalness={0.7} roughness={0.3} />
-        </mesh>
-        <mesh position={[-2.2, 0.2, 0.7]} >
-          <cylinderGeometry args={[0.08, 0.09, 0.35, 8]} />
-          <meshStandardMaterial color="#1e293b" metalness={0.7} roughness={0.3} />
-        </mesh>
-        {/* Fisherman's Bucket & Fishing Rod */}
-        <group position={[-1.2, 0.2, 0.6]}>
-          <mesh >
-            <cylinderGeometry args={[0.14, 0.11, 0.26, 12]} />
-            <meshStandardMaterial color="#0284c7" roughness={0.5} />
-          </mesh>
-          <mesh position={[0.3, 0.45, 0]} rotation={[0, 0, -0.6]} >
-            <cylinderGeometry args={[0.015, 0.025, 1.4, 8]} />
-            <meshStandardMaterial color="#f59e0b" roughness={0.5} />
-          </mesh>
-        </group>
-      </group>
-
-      {/* Moored Wooden Rowboat gently bobbing in water */}
-      <group ref={boatRef} position={[-5.4, 0.06, 0]} rotation={[0, 0.15, 0]}>
-        {/* Boat Hull Outer */}
-        <RoundedBox args={[3.2, 0.42, 1.2]} radius={0.12} smoothness={4} >
-          <meshStandardMaterial color="#92400e" roughness={0.7} />
-        </RoundedBox>
-        {/* Boat Interior Cavity */}
-        <mesh position={[0, 0.12, 0]}>
-          <boxGeometry args={[2.8, 0.3, 0.95]} />
-          <meshStandardMaterial color="#78350f" roughness={0.8} />
-        </mesh>
-        {/* Wooden Seating Thwarts */}
-        <mesh position={[-0.7, 0.15, 0]}>
-          <boxGeometry args={[0.3, 0.05, 0.95]} />
-          <meshStandardMaterial color="#b45309" roughness={0.7} />
-        </mesh>
-        <mesh position={[0.7, 0.15, 0]}>
-          <boxGeometry args={[0.3, 0.05, 0.95]} />
-          <meshStandardMaterial color="#b45309" roughness={0.7} />
-        </mesh>
-        {/* Pair of Wooden Oars inside boat */}
-        <mesh position={[0.1, 0.2, -0.2]} rotation={[0.1, 0.3, 0.05]}>
-          <cylinderGeometry args={[0.02, 0.02, 2.0, 8]} />
-          <meshStandardMaterial color="#fde68a" roughness={0.6} />
-        </mesh>
-        <mesh position={[0.1, 0.2, 0.2]} rotation={[-0.1, -0.3, 0.05]}>
-          <cylinderGeometry args={[0.02, 0.02, 2.0, 8]} />
-          <meshStandardMaterial color="#fde68a" roughness={0.6} />
-        </mesh>
-      </group>
-
-      {/* Floating Water Lily Pads with Pink Lotus Flowers */}
-      {[[ -3.5, 2.2 ], [ -4.8, 2.8 ], [ -6.2, -2.4 ], [ -3.8, -2.8 ]].map(([lx, lz], idx) => (
-        <group key={idx} position={[lx, 0.05, lz]}>
-          <mesh rotation={[-Math.PI / 2, 0, 0]}>
-            <circleGeometry args={[0.35 + (idx % 2) * 0.1, 16]} />
-            <meshStandardMaterial color="#15803d" roughness={0.8} />
-          </mesh>
-          {idx % 2 === 0 && (
-            <mesh position={[0, 0.06, 0]}>
-              <sphereGeometry args={[0.1, 8, 8]} />
-              <meshStandardMaterial color="#f472b6" roughness={0.5} />
-            </mesh>
-          )}
-        </group>
-      ))}
-    </group>
-  );
-};
-
-// Arched Wooden Footbridge across the River
-const RiverBridge: React.FC<{ position: [number, number, number]; rotation?: [number, number, number] }> = ({
-  position, rotation = [0, 0, 0],
-}) => {
-  return (
-    <group position={position} rotation={rotation}>
-      {/* Arched Bridge Deck */}
-      <group position={[0, 0.9, 0]}>
-        <mesh  receiveShadow rotation={[0, 0, 0]}>
-          <boxGeometry args={[13.5, 0.25, 2.2]} />
-          <meshStandardMaterial color="#78350f" roughness={0.8} />
-        </mesh>
-        {/* Arched Under-Support Stringers */}
-        <mesh position={[0, -0.4, -0.9]} >
-          <cylinderGeometry args={[6.8, 6.8, 0.2, 24, 1, false, 0, Math.PI]} />
-          <meshStandardMaterial color="#451a03" roughness={0.85} />
-        </mesh>
-        <mesh position={[0, -0.4, 0.9]} >
-          <cylinderGeometry args={[6.8, 6.8, 0.2, 24, 1, false, 0, Math.PI]} />
-          <meshStandardMaterial color="#451a03" roughness={0.85} />
-        </mesh>
-        {/* Bridge Side Railings */}
-        {[-5.5, -3.0, 0, 3.0, 5.5].map((rx, idx) => (
-          <group key={idx}>
-            <mesh position={[rx, 0.55, -1.05]} >
-              <cylinderGeometry args={[0.06, 0.06, 0.85, 8]} />
-              <meshStandardMaterial color="#92400e" roughness={0.7} />
-            </mesh>
-            <mesh position={[rx, 0.55, 1.05]} >
-              <cylinderGeometry args={[0.06, 0.06, 0.85, 8]} />
-              <meshStandardMaterial color="#92400e" roughness={0.7} />
-            </mesh>
-          </group>
-        ))}
-        {/* Top Handrail Bars */}
-        <mesh position={[0, 0.95, -1.05]} >
-          <boxGeometry args={[13.6, 0.1, 0.12]} />
-          <meshStandardMaterial color="#b45309" roughness={0.7} />
-        </mesh>
-        <mesh position={[0, 0.95, 1.05]} >
-          <boxGeometry args={[13.6, 0.1, 0.12]} />
-          <meshStandardMaterial color="#b45309" roughness={0.7} />
-        </mesh>
-      </group>
-    </group>
-  );
-};
-
-// Countryside Hay Bales & Farm Cart
-const HayBalesAndCart: React.FC<{ position: [number, number, number] }> = ({ position }) => {
-  return (
-    <group position={position}>
-      {/* 4 Golden Cylindrical Straw Bales with Twine */}
-      {[
-        [0, 0.5, 0, 0],
-        [1.8, 0.5, 0.4, 0.3],
-        [-1.6, 0.5, -0.3, -0.2],
-        [0.8, 1.4, 0.2, 0.1], // Stacked bale on top
-      ].map(([hx, hy, hz, hrot], idx) => (
-        <group key={idx} position={[hx, hy, hz]} rotation={[0, hrot, 0]}>
-          <mesh  rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.55, 0.55, 1.3, 16]} />
-            <meshStandardMaterial color="#eab308" roughness={0.9} />
-          </mesh>
-          {/* Tied Twine Bands */}
-          <mesh position={[0, -0.35, 0]} rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.56, 0.56, 0.05, 16]} />
-            <meshStandardMaterial color="#78350f" roughness={0.9} />
-          </mesh>
-          <mesh position={[0, 0.35, 0]} rotation={[0, 0, Math.PI / 2]}>
-            <cylinderGeometry args={[0.56, 0.56, 0.05, 16]} />
-            <meshStandardMaterial color="#78350f" roughness={0.9} />
-          </mesh>
-        </group>
-      ))}
-
-      {/* Antique Two-Wheeled Wooden Farm Cart */}
-      <group position={[-2.8, 0.45, 1.6]} rotation={[0, 0.6, 0]}>
-        {/* Cart Wooden Box Bed */}
-        <mesh  position={[0, 0.35, 0]}>
-          <boxGeometry args={[1.8, 0.4, 1.1]} />
-          <meshStandardMaterial color="#78350f" roughness={0.8} />
-        </mesh>
-        {/* Spoked Left Wheel */}
-        <mesh position={[0, 0.1, -0.65]} rotation={[Math.PI / 2, 0, 0]} >
-          <torusGeometry args={[0.42, 0.05, 8, 16]} />
-          <meshStandardMaterial color="#451a03" roughness={0.8} />
-        </mesh>
-        {/* Spoked Right Wheel */}
-        <mesh position={[0, 0.1, 0.65]} rotation={[Math.PI / 2, 0, 0]} >
-          <torusGeometry args={[0.42, 0.05, 8, 16]} />
-          <meshStandardMaterial color="#451a03" roughness={0.8} />
-        </mesh>
-        {/* Cart Pulling Handles Resting on Ground */}
-        <mesh position={[-1.3, -0.15, -0.3]} rotation={[0, 0, 0.3]} >
-          <boxGeometry args={[1.2, 0.06, 0.06]} />
-          <meshStandardMaterial color="#92400e" />
-        </mesh>
-        <mesh position={[-1.3, -0.15, 0.3]} rotation={[0, 0, 0.3]} >
-          <boxGeometry args={[1.2, 0.06, 0.06]} />
-          <meshStandardMaterial color="#92400e" />
-        </mesh>
-      </group>
-    </group>
-  );
-};
-
-// Cozy Campsite with Triangular Canvas Tent & Log Campfire
-const MeadowCampsite: React.FC<{ position: [number, number, number] }> = ({ position }) => {
-  return (
-    <group position={position}>
-      {/* Triangular Canvas A-Frame Tent */}
-      <group position={[0, 0.9, 0]} rotation={[0, 0.4, 0]}>
-        <mesh >
-          <coneGeometry args={[1.8, 1.8, 3]} />
-          <meshStandardMaterial color="#fef08a" roughness={0.8} />
-        </mesh>
-        {/* Tent Dark Entrance Flap */}
-        <mesh position={[0, -0.2, 0.72]}>
-          <planeGeometry args={[0.9, 1.2]} />
-          <meshStandardMaterial color="#1e293b" roughness={0.9} />
-        </mesh>
-      </group>
-
-      {/* Campfire Ring of River Stones & Embers */}
-      <group position={[2.6, 0.08, 0.5]}>
-        {/* Stone Ring */}
-        {[0, 1, 2, 3, 4, 5, 6, 7].map((sIdx) => {
-          const sAngle = (sIdx / 8) * Math.PI * 2;
-          return (
-            <mesh key={sIdx} position={[Math.cos(sAngle) * 0.55, 0, Math.sin(sAngle) * 0.55]} >
-              <sphereGeometry args={[0.12, 8, 8]} />
-              <meshStandardMaterial color="#57534e" roughness={0.9} />
-            </mesh>
-          );
-        })}
-        {/* Charred Wood Logs */}
-        <mesh rotation={[0, 0.4, 0.2]}  position={[0, 0.06, 0]}>
-          <cylinderGeometry args={[0.06, 0.06, 0.7, 6]} />
-          <meshStandardMaterial color="#292524" roughness={0.9} />
-        </mesh>
-        <mesh rotation={[0, -0.5, -0.2]}  position={[0, 0.06, 0]}>
-          <cylinderGeometry args={[0.06, 0.06, 0.7, 6]} />
-          <meshStandardMaterial color="#292524" roughness={0.9} />
-        </mesh>
-        {/* Warm Embers Glow */}
-        <pointLight color="#f97316" intensity={0.9} distance={4} decay={2} />
-        <mesh position={[0, 0.05, 0]}>
-          <sphereGeometry args={[0.1, 8, 8]} />
-          <meshBasicMaterial color="#fb923c" />
-        </mesh>
-      </group>
-
-      {/* Split Log Benches */}
-      <mesh position={[2.6, 0.16, 1.6]} rotation={[0, 0, Math.PI / 2]} >
-        <cylinderGeometry args={[0.16, 0.16, 1.4, 8, 1, false, 0, Math.PI]} />
-        <meshStandardMaterial color="#78350f" roughness={0.8} />
-      </mesh>
-      <mesh position={[3.6, 0.16, 0.4]} rotation={[Math.PI / 2, 0, 0]} >
-        <cylinderGeometry args={[0.16, 0.16, 1.4, 8, 1, false, 0, Math.PI]} />
-        <meshStandardMaterial color="#78350f" roughness={0.8} />
-      </mesh>
-    </group>
-  );
-};
-
-// Rustic Stone Wishing Well
-const WishingWell: React.FC<{ position: [number, number, number] }> = ({ position }) => {
-  return (
-    <group position={position}>
-      {/* Round River-Stone Base */}
-      <mesh  receiveShadow position={[0, 0.45, 0]}>
-        <cylinderGeometry args={[0.9, 0.95, 0.9, 16]} />
-        <meshStandardMaterial color="#64748b" roughness={0.9} />
-      </mesh>
-      {/* Dark Well Water Inside */}
-      <mesh position={[0, 0.35, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.75, 16]} />
-        <meshStandardMaterial color="#0284c7" roughness={0.1} />
-      </mesh>
-      {/* Timber Roof Posts */}
-      <mesh position={[-0.8, 1.25, 0]} >
-        <cylinderGeometry args={[0.07, 0.07, 1.6, 8]} />
-        <meshStandardMaterial color="#78350f" roughness={0.8} />
-      </mesh>
-      <mesh position={[0.8, 1.25, 0]} >
-        <cylinderGeometry args={[0.07, 0.07, 1.6, 8]} />
-        <meshStandardMaterial color="#78350f" roughness={0.8} />
-      </mesh>
-      {/* Pitched Wooden Canopy Roof */}
-      <group position={[0, 2.1, 0]}>
-        <mesh position={[-0.45, 0.2, 0]} rotation={[0, 0, Math.PI / 5]} >
-          <boxGeometry args={[1.2, 0.08, 1.6]} />
-          <meshStandardMaterial color="#991b1b" roughness={0.6} />
-        </mesh>
-        <mesh position={[0.45, 0.2, 0]} rotation={[0, 0, -Math.PI / 5]} >
-          <boxGeometry args={[1.2, 0.08, 1.6]} />
-          <meshStandardMaterial color="#991b1b" roughness={0.6} />
-        </mesh>
-      </group>
-      {/* Suspended Wooden Bucket with Rope */}
-      <mesh position={[0, 1.1, 0]}>
-        <cylinderGeometry args={[0.015, 0.015, 0.8, 6]} />
-        <meshStandardMaterial color="#fde68a" />
-      </mesh>
-      <mesh position={[0, 0.7, 0]} >
-        <cylinderGeometry args={[0.14, 0.11, 0.24, 10]} />
-        <meshStandardMaterial color="#92400e" roughness={0.7} />
-      </mesh>
-    </group>
-  );
-};
-
-// Cute Low-Poly Fluffy Sheep Grazing in the Meadow
-const GrazingSheep: React.FC<{ position: [number, number, number]; rotation?: [number, number, number]; isEating?: boolean }> = ({
-  position, rotation = [0, 0, 0], isEating = false,
-}) => {
-  return (
-    <group position={position} rotation={rotation} scale={[0.85, 0.85, 0.85]}>
-      {/* Fluffy Woolly Body */}
-      <RoundedBox args={[0.9, 0.65, 0.65]} radius={0.16} smoothness={4} position={[0, 0.55, 0]} >
-        <meshStandardMaterial color="#f8fafc" roughness={0.95} />
-      </RoundedBox>
-      {/* Black Head & Ears */}
-      <group position={[isEating ? 0.45 : 0.4, isEating ? 0.25 : 0.6, 0]} rotation={[0, 0, isEating ? -0.4 : 0]}>
-        <RoundedBox args={[0.34, 0.32, 0.3]} radius={0.08} smoothness={3} >
-          <meshStandardMaterial color="#1e293b" roughness={0.8} />
-        </RoundedBox>
-        {/* Left Ear */}
-        <mesh position={[0, 0.05, -0.18]} rotation={[0.4, 0, 0]}>
-          <boxGeometry args={[0.1, 0.06, 0.16]} />
-          <meshStandardMaterial color="#0f172a" />
-        </mesh>
-        {/* Right Ear */}
-        <mesh position={[0, 0.05, 0.18]} rotation={[-0.4, 0, 0]}>
-          <boxGeometry args={[0.1, 0.06, 0.16]} />
-          <meshStandardMaterial color="#0f172a" />
-        </mesh>
-      </group>
-      {/* 4 Little Black Legs */}
-      {[[-0.25, -0.2], [-0.25, 0.2], [0.25, -0.2], [0.25, 0.2]].map(([lx, lz], idx) => (
-        <mesh key={idx} position={[lx, 0.15, lz]} >
-          <cylinderGeometry args={[0.045, 0.045, 0.3, 8]} />
-          <meshStandardMaterial color="#0f172a" roughness={0.9} />
-        </mesh>
-      ))}
-      {/* Tiny Woolly Tail */}
-      <mesh position={[-0.48, 0.6, 0]}>
-        <sphereGeometry args={[0.08, 6, 6]} />
-        <meshStandardMaterial color="#f8fafc" roughness={0.9} />
-      </mesh>
-    </group>
-  );
-};
-
-// Picturesque Hot Air Balloon Drifting in Sunny Sky
-const HotAirBalloon = React.forwardRef<THREE.Group, { position: [number, number, number] }>(
-  ({ position }, ref) => {
-    return (
-      <group ref={ref} position={position} scale={[1.8, 1.8, 1.8]}>
-        {/* Teardrop Balloon Envelope */}
-        <mesh  position={[0, 2.5, 0]}>
-          <sphereGeometry args={[2.2, 24, 24]} />
-          <meshStandardMaterial color="#ef4444" roughness={0.6} />
-        </mesh>
-        {/* Colorful Striped Rings */}
-        <mesh position={[0, 2.5, 0]}>
-          <cylinderGeometry args={[2.22, 2.22, 0.8, 24]} />
-          <meshStandardMaterial color="#fbbf24" roughness={0.6} />
-        </mesh>
-        <mesh position={[0, 2.5, 0]}>
-          <cylinderGeometry args={[2.24, 2.24, 0.3, 24]} />
-          <meshStandardMaterial color="#3b82f6" roughness={0.6} />
-        </mesh>
-        {/* Tapered Lower Skirt */}
-        <mesh position={[0, 0.9, 0]}>
-          <coneGeometry args={[1.1, 1.2, 16]} />
-          <meshStandardMaterial color="#dc2626" roughness={0.6} />
-        </mesh>
-        {/* Burner Flame Glow */}
-        <pointLight color="#f97316" intensity={1.2} distance={8} decay={2} position={[0, 0.2, 0]} />
-        {/* Rigging Ropes */}
-        {[-0.35, 0.35].map((rx, idx) => (
-          <mesh key={idx} position={[rx, -0.1, 0]}>
-            <cylinderGeometry args={[0.015, 0.015, 0.8, 6]} />
-            <meshStandardMaterial color="#78350f" />
-          </mesh>
-        ))}
-        {/* Wicker Passenger Basket */}
-        <RoundedBox args={[0.7, 0.5, 0.7]} radius={0.06} smoothness={3} position={[0, -0.5, 0]} >
-          <meshStandardMaterial color="#b45309" roughness={0.9} />
-        </RoundedBox>
-      </group>
-    );
   }
-);
-HotAirBalloon.displayName = 'HotAirBalloon';
+  b.add(PRIM.cyl12, { pos: [0, 0.4, 0], scale: [0.8, 0.8, 0.8], color: PALETTE.stoneDark });
+  b.add(PRIM.cyl12, { pos: [0, 0.6, 0], scale: [0.72, 0.02, 0.72], color: PALETTE.waterDeep });
+  for (const sx of [-1, 1]) {
+    b.add(PRIM.box, { pos: [sx * 0.85, 1.35, 0], scale: [0.12, 1.7, 0.12], color: PALETTE.wood, facetJitter: 0.06 });
+  }
+  b.add(PRIM.cyl6, { pos: [0, 1.65, 0], rot: [0, 0, Math.PI / 2], scale: [0.06, 1.7, 0.06], color: PALETTE.woodDark });
+  b.add(PRIM.box, { pos: [-0.47, 2.4, 0], rot: [0, 0, Math.PI / 5], scale: [1.25, 0.08, 1.7], color: PALETTE.roofRed, facetJitter: 0.05 });
+  b.add(PRIM.box, { pos: [0.47, 2.4, 0], rot: [0, 0, -Math.PI / 5], scale: [1.25, 0.08, 1.7], color: PALETTE.roofRed, facetJitter: 0.05 });
+  b.add(PRIM.cyl6, { pos: [0, 1.3, 0], scale: [0.012, 0.7, 0.012], color: PALETTE.woodLight });
+  b.add(taperedCyl(1.2, 8), { pos: [0, 0.85, 0], scale: [0.13, 0.24, 0.13], color: PALETTE.wood });
+  addFlowerClump(b, 1.2, 0.6, PALETTE.flowers[3], 5);
+  addFlowerClump(b, -1.1, -0.7, PALETTE.flowers[0], 4);
+}
 
-// Countryside Trees (Weeping Willows by River & Birch Trees in Meadow)
-const CountrysideTrees: React.FC = () => {
-  return (
-    <group>
-      {/* Weeping Willows along River Bank */}
-      {[[-22, 14], [-23, -12], [-22, 28]].map(([wx, wz], idx) => (
-        <group key={idx} position={[wx, 0, wz]}>
-          {/* Gnarled Willow Trunk */}
-          <mesh  position={[0, 1.5, 0]} rotation={[0.05, 0, -0.05]}>
-            <cylinderGeometry args={[0.3, 0.5, 3.0, 8]} />
-            <meshStandardMaterial color="#451a03" roughness={0.9} />
-          </mesh>
-          {/* Drooping Willow Canopy */}
-          <group position={[0, 3.2, 0]}>
-            <mesh >
-              <sphereGeometry args={[2.4, 12, 12]} />
-              <meshStandardMaterial color="#4ade80" roughness={0.8} />
-            </mesh>
-            <mesh position={[0, -0.6, 0]}>
-              <cylinderGeometry args={[2.6, 2.2, 1.6, 12]} />
-              <meshStandardMaterial color="#22c55e" roughness={0.85} />
-            </mesh>
-          </group>
-        </group>
-      ))}
+// --- River -----------------------------------------------------------------
+function buildRiverBanks(b: GeoBuilder): void {
+  const r = b.rng;
+  b.add(ribbonGeometry(riverX, -RIVER_HALF - 2.4, -RIVER_HALF + 0.6, -110, 110, 2, 0.03), { color: PALETTE.sand, facetJitter: 0.06 });
+  b.add(ribbonGeometry(riverX, RIVER_HALF - 0.6, RIVER_HALF + 2.4, -110, 110, 2, 0.03), { color: PALETTE.sand, facetJitter: 0.06 });
+  for (let i = 0; i < 46; i++) {
+    const z = -70 + r() * 140;
+    const side = r() < 0.5 ? -1 : 1;
+    addRock(b, riverX(z) + side * (RIVER_HALF + 0.3 + r() * 1.8), z, 0.15 + r() * 0.35);
+  }
+  // Reeds near the banks
+  for (let i = 0; i < 40; i++) {
+    const z = -40 + r() * 80;
+    const side = r() < 0.5 ? -1 : 1;
+    const x = riverX(z) + side * (RIVER_HALF + 0.2 + r() * 0.6);
+    for (let k = 0; k < 4; k++) {
+      const h = 0.7 + r() * 0.6;
+      b.add(PRIM.cone5, {
+        pos: [x + (r() - 0.5) * 0.4, h / 2, z + (r() - 0.5) * 0.4], rot: [(r() - 0.5) * 0.3, 0, (r() - 0.5) * 0.3],
+        scale: [0.04, h, 0.04], color: PALETTE.willow[k % 3], wind: 5,
+      });
+    }
+  }
+}
 
-      {/* Birch Trees in Southern & Eastern Meadow */}
-      {[[12, 34], [-8, 42], [28, 40], [38, 28]].map(([bx, bz], idx) => (
-        <group key={idx} position={[bx, 0, bz]}>
-          {/* Slender White Birch Trunk */}
-          <mesh  position={[0, 2.0, 0]}>
-            <cylinderGeometry args={[0.15, 0.22, 4.0, 8]} />
-            <meshStandardMaterial color="#f8fafc" roughness={0.6} />
-          </mesh>
-          {/* Birch Dark Bark Rings */}
-          {[0.8, 1.6, 2.4, 3.2].map((by, sIdx) => (
-            <mesh key={sIdx} position={[0, by, 0]}>
-              <cylinderGeometry args={[0.18, 0.18, 0.06, 8]} />
-              <meshStandardMaterial color="#1e293b" roughness={0.9} />
-            </mesh>
-          ))}
-          {/* Golden/Lime Birch Leaf Foliage */}
-          <group position={[0, 4.2, 0]}>
-            <mesh >
-              <sphereGeometry args={[1.6, 10, 10]} />
-              <meshStandardMaterial color="#facc15" roughness={0.8} />
-            </mesh>
-            <mesh position={[0, 0.8, 0]} >
-              <sphereGeometry args={[1.2, 10, 10]} />
-              <meshStandardMaterial color="#fef08a" roughness={0.8} />
-            </mesh>
-          </group>
-        </group>
-      ))}
-    </group>
-  );
-};
+/** Pier on the east bank near z=5; returns the rowboat's world position. */
+function buildDock(b: GeoBuilder): V3 {
+  const z = 5;
+  const bank = riverX(z) + RIVER_HALF;
+  const yDeck = 0.32;
+  for (let k = 0; k < 9; k++) {
+    const x = bank + 1.2 - 0.27 - k * 0.54;
+    b.add(PRIM.box, {
+      pos: [x, yDeck, z], rot: [0, (b.rng() - 0.5) * 0.03, 0], scale: [0.5, 0.09, 1.8],
+      color: k % 2 ? PALETTE.wood : PALETTE.woodLight, facetJitter: 0.06,
+    });
+  }
+  for (const px of [bank + 0.9, bank - 1.3, bank - 3.5]) {
+    for (const pz of [-0.82, 0.82]) {
+      b.add(PRIM.cyl6, { pos: [px, 0.15, z + pz], scale: [0.09, 0.9, 0.09], color: PALETTE.woodDark });
+    }
+  }
+  b.add(PRIM.cyl8, { pos: [bank - 3.5, yDeck + 0.2, z - 0.82], scale: [0.09, 0.32, 0.09], color: PALETTE.charcoal });
+  b.add(PRIM.cyl8, { pos: [bank - 3.5, yDeck + 0.2, z + 0.82], scale: [0.09, 0.32, 0.09], color: PALETTE.charcoal });
+  b.add(taperedCyl(1.25, 10), { pos: [bank - 1.0, yDeck + 0.18, z + 0.55], scale: [0.12, 0.26, 0.12], color: PALETTE.balloon[3] });
+  const rod = between([bank - 1.6, yDeck + 0.06, z + 0.6], [bank - 3.0, yDeck + 1.0, z + 1.3]);
+  b.add(PRIM.cyl6, { pos: rod.pos, rot: rod.rot, scale: [0.018, rod.len, 0.018], color: PALETTE.woodLight });
 
-// Distant decorative cottage
-const DistantCottage: React.FC<{ position: [number, number, number]; roofColor: string; wallColor: string }> = ({
-  position, roofColor, wallColor,
-}) => (
-  <group position={position} scale={[1.4, 1.4, 1.4]}>
-    <mesh  position={[0, 0.8, 0]}>
-      <boxGeometry args={[2.0, 1.6, 1.6]} />
-      <meshStandardMaterial color={wallColor} roughness={0.8} />
-    </mesh>
-    <mesh  position={[0, 2.0, 0]} rotation={[0, Math.PI / 4, 0]}>
-      <coneGeometry args={[1.7, 1.2, 4]} />
-      <meshStandardMaterial color={roofColor} roughness={0.7} />
-    </mesh>
-    <mesh position={[0, 0.45, 0.82]}>
-      <boxGeometry args={[0.4, 0.7, 0.04]} />
-      <meshStandardMaterial color="#78350f" roughness={0.8} />
-    </mesh>
-    <mesh position={[0.6, 2.8, -0.2]}>
-      <boxGeometry args={[0.35, 0.6, 0.35]} />
-      <meshStandardMaterial color="#57534e" roughness={0.9} />
-    </mesh>
-  </group>
-);
+  // Lily pads with lotus blossoms
+  const pads: [number, number][] = [[2.2, 2.0], [2.9, 2.8], [3.8, -1.4], [1.6, 9.2], [2.4, 10.0], [4.2, 12.5], [1.8, -4.0]];
+  pads.forEach(([dIn, pz], i) => {
+    const x = riverX(pz) + RIVER_HALF - dIn;
+    b.add(PRIM.cyl12, { pos: [x, 0.065, pz], scale: [0.36 + (i % 3) * 0.07, 0.02, 0.36 + (i % 3) * 0.07], color: PALETTE.leaf, facetJitter: 0.06 });
+    if (i % 2 === 0) b.add(PRIM.ico1, { pos: [x + 0.05, 0.12, pz], scale: [0.11, 0.07, 0.11], color: PALETTE.blossom[1] });
+  });
+  return [bank - 2.4, 0.04, z + 1.75];
+}
 
-// Volumetric cloud cluster
-const CloudItem: React.FC<{ position: [number, number, number]; scale?: number }> = ({ position, scale = 1.0 }) => {
-  return (
-    <group position={position} scale={[scale, scale * 0.55, scale]}>
-      <mesh>
-        <sphereGeometry args={[2.4, 12, 12]} />
-        <meshStandardMaterial color="#f8fafc" roughness={0.95} metalness={0.0} />
-      </mesh>
-      <mesh position={[1.8, -0.3, 0.4]}>
-        <sphereGeometry args={[1.8, 12, 12]} />
-        <meshStandardMaterial color="#f1f5f9" roughness={0.95} metalness={0.0} />
-      </mesh>
-      <mesh position={[-1.7, -0.4, -0.2]}>
-        <sphereGeometry args={[1.7, 12, 12]} />
-        <meshStandardMaterial color="#f8fafc" roughness={0.95} metalness={0.0} />
-      </mesh>
-      <mesh position={[0.4, 0.5, -0.5]}>
-        <sphereGeometry args={[1.6, 12, 12]} />
-        <meshStandardMaterial color="#e2e8f0" roughness={0.95} metalness={0.0} />
-      </mesh>
-      <mesh position={[-0.8, -0.2, 0.8]}>
-        <sphereGeometry args={[1.4, 10, 10]} />
-        <meshStandardMaterial color="#f1f5f9" roughness={0.95} metalness={0.0} />
-      </mesh>
-    </group>
-  );
-};
+function buildBridge(b: GeoBuilder): void {
+  const span = 8.4;
+  const rise = 1.35;
+  const archY = (x: number) => 0.25 + rise * (1 - (x / span) ** 2);
+  const planks = 26;
+  for (let k = 0; k < planks; k++) {
+    const x = -span + 0.3 + k * ((2 * span - 0.6) / (planks - 1));
+    const s = (-2 * rise * x) / (span * span);
+    b.add(PRIM.box, {
+      pos: [x, archY(x), 0], rot: [0, 0, Math.atan(s)], scale: [0.58, 0.1, 2.1],
+      color: k % 3 === 0 ? PALETTE.woodLight : PALETTE.wood, facetJitter: 0.06,
+    });
+  }
+  const steps = 12;
+  for (const zz of [-0.95, 0.95]) {
+    for (let k = 0; k < steps; k++) {
+      const xa = -span + (k / steps) * 2 * span;
+      const xb = -span + ((k + 1) / steps) * 2 * span;
+      const beam = between([xa, archY(xa) - 0.18, zz], [xb, archY(xb) - 0.18, zz]);
+      b.add(PRIM.box, { pos: beam.pos, rot: beam.rot, scale: [0.22, beam.len + 0.05, 0.16], color: PALETTE.woodDark });
+    }
+    const postsX = [-7.6, -5.2, -2.6, 0, 2.6, 5.2, 7.6];
+    postsX.forEach((px, i) => {
+      b.add(PRIM.box, { pos: [px, archY(px) + 0.45, zz * 1.04], scale: [0.11, 0.9, 0.11], color: PALETTE.woodDark });
+      if (i === 0) return;
+      const qx = postsX[i - 1];
+      const rail = between([qx, archY(qx) + 0.86, zz * 1.04], [px, archY(px) + 0.86, zz * 1.04]);
+      b.add(PRIM.cyl6, { pos: rail.pos, rot: rail.rot, scale: [0.05, rail.len + 0.08, 0.05], color: PALETTE.woodLight });
+    });
+  }
+  for (const sx of [-1, 1]) {
+    b.add(PRIM.box, { pos: [sx * 6.0, 0.2, 0], scale: [0.5, 1.0, 2.3], color: PALETTE.stoneDark, facetJitter: 0.08, wobble: 0.04 });
+  }
+}
+
+// --- Farm & camp -------------------------------------------------------------
+function buildHayAndCart(b: GeoBuilder): void {
+  const bales: [number, number, number, number][] = [
+    [0, 0.55, 0, 0], [1.8, 0.55, 0.4, 0.3], [-1.6, 0.55, -0.3, -0.2], [0.8, 1.5, 0.2, 0.1],
+  ];
+  for (const [x, y, z, yaw] of bales) {
+    const bale = new GeoBuilder(3);
+    bale.add(PRIM.cyl12, { rot: [0, 0, Math.PI / 2], scale: [0.55, 1.3, 0.55], color: '#d8b64c', facetJitter: 0.08 });
+    bale.add(PRIM.cyl12, { pos: [0.66, 0, 0], rot: [0, 0, Math.PI / 2], scale: [0.5, 0.02, 0.5], color: '#e7cc6c' });
+    bale.add(PRIM.cyl12, { pos: [-0.66, 0, 0], rot: [0, 0, Math.PI / 2], scale: [0.5, 0.02, 0.5], color: '#e7cc6c' });
+    for (const bx of [-0.35, 0.35]) {
+      bale.add(PRIM.cyl12, { pos: [bx, 0, 0], rot: [0, 0, Math.PI / 2], scale: [0.565, 0.05, 0.565], color: PALETTE.woodDark });
+    }
+    b.append(bale, { pos: [x, y, z], rot: [0, yaw, 0] });
+  }
+  const cart = new GeoBuilder(4);
+  cart.add(PRIM.box, { pos: [0, 0.8, 0], scale: [1.8, 0.12, 1.1], color: PALETTE.wood, facetJitter: 0.06 });
+  for (const sz of [-0.53, 0.53]) cart.add(PRIM.box, { pos: [0, 1.0, sz], scale: [1.8, 0.32, 0.05], color: PALETTE.woodLight, facetJitter: 0.06 });
+  for (const sx of [-0.88, 0.88]) cart.add(PRIM.box, { pos: [sx, 1.0, 0], scale: [0.05, 0.32, 1.1], color: PALETTE.woodLight });
+  for (const sz of [-0.65, 0.65]) {
+    cart.add(WHEEL, { pos: [0.1, 0.45, sz], scale: 0.42, color: PALETTE.woodDark });
+    for (let k = 0; k < 4; k++) {
+      cart.add(PRIM.box, { pos: [0.1, 0.45, sz], rot: [0, 0, (k * Math.PI) / 4], scale: [0.05, 0.8, 0.04], color: PALETTE.woodDark });
+    }
+  }
+  for (const sz of [-0.3, 0.3]) {
+    const h = between([-0.9, 0.8, sz], [-2.0, 0.05, sz * 1.2]);
+    cart.add(PRIM.box, { pos: h.pos, rot: h.rot, scale: [0.06, h.len, 0.06], color: PALETTE.wood });
+  }
+  cart.add(PRIM.ico1, { pos: [0.1, 1.05, 0], scale: [0.75, 0.25, 0.42], color: '#d8b64c', facetJitter: 0.1, wobble: 0.15 });
+  b.append(cart, { pos: [-2.8, 0, 1.8], rot: [0, 0.6, 0] });
+}
+
+function buildCampsite(b: GeoBuilder, fire: GeoBuilder): void {
+  const r = b.rng;
+  const tent = new GeoBuilder(6);
+  tent.add(TENT, { pos: [0, 0.75, 0], rot: [0, 0, Math.PI / 2], scale: [1.5, 2.6, 1.5], color: '#e9d7a3', facetJitter: 0.04 });
+  tent.add(PRIM.box, { pos: [1.31, 0.45, 0], scale: [0.02, 0.9, 0.62], color: PALETTE.charcoal });
+  tent.add(PRIM.cyl6, { pos: [0, 2.28, 0], rot: [0, 0, Math.PI / 2], scale: [0.03, 2.9, 0.03], color: PALETTE.woodDark });
+  b.append(tent, { pos: [0, 0, 0], rot: [0, 0.4 + Math.PI, 0] });
+
+  const fx = FIRE_POS[0] - 30;
+  const fz = FIRE_POS[2] - 16;
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    addRock(b, fx + Math.cos(a) * 0.55, fz + Math.sin(a) * 0.55, 0.13 + r() * 0.04, 0.8);
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.3;
+    const log = between([fx + Math.cos(a) * 0.4, 0.05, fz + Math.sin(a) * 0.4], [fx - Math.cos(a) * 0.05, 0.3, fz - Math.sin(a) * 0.05]);
+    b.add(PRIM.cyl6, { pos: log.pos, rot: log.rot, scale: [0.06, log.len, 0.06], color: '#3b2a20' });
+  }
+  b.add(PRIM.cyl8, { pos: [fx, 0.03, fz], scale: [0.32, 0.04, 0.32], color: '#e0612e', intensity: 1.0 });
+  // Flames (unlit emissive; flicker by scaling the fire mesh)
+  fire.add(PRIM.cone5, { pos: [0, 0.32, 0], scale: [0.2, 0.55, 0.2], color: '#ff7a2f', intensity: 3.2 });
+  fire.add(PRIM.cone5, { pos: [0.08, 0.24, 0.05], rot: [0, 1, 0.15], scale: [0.13, 0.38, 0.13], color: '#ffb347', intensity: 3.6 });
+  fire.add(PRIM.cone5, { pos: [-0.07, 0.22, -0.04], rot: [0, 2, -0.15], scale: [0.11, 0.34, 0.11], color: '#ffd36b', intensity: 3.8 });
+
+  b.add(HALF_LOG, { pos: [fx, 0.16, fz + 1.15], rot: [0, 0, Math.PI / 2], scale: [0.18, 1.4, 0.18], color: PALETTE.wood, facetJitter: 0.06 });
+  b.add(HALF_LOG, { pos: [fx + 1.15, 0.16, fz], rot: [Math.PI / 2, 0, Math.PI / 2], scale: [0.18, 1.4, 0.18], color: PALETTE.wood, facetJitter: 0.06 });
+}
+
+function buildSheep(b: GeoBuilder, eating: boolean): void {
+  b.add(PRIM.ico1, { pos: [0, 0.58, 0], scale: [0.52, 0.38, 0.36], color: PALETTE.wool, facetJitter: 0.06, wobble: 0.12 });
+  b.add(PRIM.ico1, { pos: [0.08, 0.78, 0], scale: [0.3, 0.2, 0.26], color: PALETTE.wool, facetJitter: 0.06, wobble: 0.12 });
+  const head: V3 = eating ? [0.5, 0.28, 0] : [0.48, 0.7, 0];
+  const tilt = eating ? -0.7 : 0.15;
+  b.add(PRIM.box, { pos: head, rot: [0, 0, tilt], scale: [0.26, 0.2, 0.18], color: PALETTE.charcoal });
+  b.add(PRIM.ico0, { pos: [head[0] - 0.08, head[1] + 0.1, 0], scale: [0.11, 0.08, 0.12], color: PALETTE.wool });
+  for (const s of [-1, 1]) {
+    b.add(PRIM.box, { pos: [head[0] - 0.06, head[1] + 0.04, s * 0.13], rot: [s * 0.5, 0, 0], scale: [0.07, 0.04, 0.12], color: PALETTE.charcoal });
+  }
+  for (const [lx, lz] of [[-0.25, -0.16], [-0.25, 0.16], [0.24, -0.16], [0.24, 0.16]]) {
+    b.add(PRIM.cyl6, { pos: [lx, 0.17, lz], scale: [0.045, 0.34, 0.045], color: PALETTE.charcoal });
+  }
+  b.add(PRIM.ico0, { pos: [-0.52, 0.66, 0], scale: 0.08, color: PALETTE.wool });
+}
+
+// --- Vegetation ----------------------------------------------------------------
+function buildTrees(b: GeoBuilder): void {
+  const rng = makeRng(99);
+  // Willows along the river's east bank
+  for (const z of [14, -12, 28, -38, 44]) addWillow(b, riverX(z) + RIVER_HALF + 3.2, z, 0.95 + rng() * 0.15);
+  // Birches in the southern / eastern meadow
+  for (const [x, z] of [[12, 34], [-8, 42], [28, 40], [38, 28], [20, 48], [14, 37]]) addBirch(b, x, z, 0.9 + rng() * 0.3);
+  // Pines framing the yard
+  const framing: [number, number][] = [
+    [-15.5, -15], [-18.5, -10.5], [-14.8, -19.5], [15, -16.5], [18, -11.5], [16.5, -21], [19.5, -3.5], [-17.5, -3],
+    [-21, -17], [21, -18], [-9, -18.5], [9.5, -19],
+  ];
+  for (const [x, z] of framing) addPine(b, x, z, 0.95 + rng() * 0.35);
+
+  // Forest belt behind the house and along the sides
+  const avoid: [number, number, number][] = [[30, 16, 6], [18, 22, 5], [-16, 16, 4], [62, -35, 12], [55, 43, 10]];
+  let placed = 0;
+  for (let tries = 0; tries < 400 && placed < 46; tries++) {
+    const a = Math.PI * (0.05 + rng() * 1.25) + Math.PI * 0.85; // mostly the north half
+    const d = 26 + rng() * 48;
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    if (Math.abs(x - riverX(z)) < RIVER_HALF + 5) continue;
+    if (z > 10 && Math.abs(x - roadX(z)) < 5) continue;
+    if (avoid.some(([ax, az, ar]) => Math.hypot(x - ax, z - az) < ar)) continue;
+    if (rng() < 0.75) addPine(b, x, z, 1.0 + rng() * 0.6);
+    else addDeciduousTree(b, x, z, 1.0 + rng() * 0.4, { leaves: [PALETTE.leafDeep, PALETTE.leaf, PALETTE.leafLight, PALETTE.leafSun] });
+    placed++;
+  }
+  // A few round meadow trees to the south
+  const meadow: [number, number][] = [[-6, 27], [36, -6], [-24, 52], [40, 50], [-40, 30]];
+  meadow.forEach(([x, z], i) => addDeciduousTree(b, x, z, 1.1, {
+    leaves: i % 3 === 2
+      ? [PALETTE.autumn[3], PALETTE.autumn[0], PALETTE.autumn[1], PALETTE.autumn[2]]
+      : [PALETTE.leafDeep, PALETTE.leaf, PALETTE.leafLight, PALETTE.leafSun],
+  }));
+}
+
+const MOUNTAIN_TOP = new THREE.Color(PALETTE.mountainTop);
+function buildLandscape(b: GeoBuilder): void {
+  const r = b.rng;
+  // Rolling hills (half-buried faceted domes)
+  const hills: [number, number, number, number, number, string][] = [
+    [-65, -70, 35, 12, 35, PALETTE.hillA], [70, -75, 40, 14, 40, PALETTE.hillB], [-75, 20, 38, 11, 38, PALETTE.hillA],
+    [78, 30, 42, 13, 42, PALETTE.hillB], [-50, 80, 36, 10, 36, PALETTE.hillC], [55, 82, 38, 11, 38, PALETTE.hillB],
+    [0, -85, 45, 15, 45, PALETTE.hillC], [0, 88, 42, 12, 42, PALETTE.hillA], [-82, -30, 36, 10, 36, PALETTE.hillB],
+    [85, -25, 40, 12, 40, PALETTE.hillA], [62, -35, 16, 8.5, 16, PALETTE.hillB],
+  ];
+  for (const [x, z, sx, sy, sz, color] of hills) {
+    const isWindmillHill = sx === 16;
+    b.add(PRIM.ico2, {
+      pos: [x, isWindmillHill ? -1.2 : sy / 2 - 4, z], rot: [0, r() * 3, 0], scale: [sx, sy, sz],
+      color, facetJitter: 0.05, wobble: 0.04,
+    });
+  }
+  // Mountain ring with snowy caps
+  const count = 22;
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    const d = 98 + ((i * 37) % 25);
+    const h = 26 + ((i * 23) % 20);
+    const w = 24 + ((i * 19) % 16);
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    const base = i % 2 === 0 ? PALETTE.mountainA : PALETTE.mountainB;
+    b.add(PRIM.cone7, {
+      pos: [x, h / 2 - 3, z], rot: [0, a + (i % 4) * 0.25, 0], scale: [w, h, w],
+      color: base, facetJitter: 0.07, wobble: 0.05,
+      colorFn: (_x, y, _z, out) => {
+        if (y > 0.22) out.set(PALETTE.snow);
+        else if (y > -0.05) out.lerp(MOUNTAIN_TOP, 0.6);
+      },
+    });
+    b.add(PRIM.cone7, {
+      pos: [x + Math.cos(a + 1.2) * w * 0.45, h * 0.32 - 3, z + Math.sin(a + 1.2) * w * 0.45], rot: [0, a, 0],
+      scale: [w * 0.6, h * 0.65, w * 0.6], color: PALETTE.mountainB, facetJitter: 0.07, wobble: 0.05,
+    });
+  }
+}
+
+// --- Landmarks -------------------------------------------------------------------
+function buildWindmillBody(b: GeoBuilder): void {
+  b.add(taperedCyl(0.68, 8, 2), { pos: [0, 2.5, 0], scale: [1.5, 5.0, 1.5], color: '#f1ece2', facetJitter: 0.04 });
+  b.add(PRIM.cone7, { pos: [0, 5.65, 0], scale: [1.25, 1.4, 1.25], color: PALETTE.roofRed, facetJitter: 0.06 });
+  b.add(PRIM.box, { pos: [0, 0.6, 1.36], scale: [0.6, 1.2, 0.1], color: PALETTE.woodDark });
+  b.add(PRIM.box, { pos: [0, 3.2, 1.08], scale: [0.4, 0.5, 0.1], color: '#5c7aa0' });
+  b.add(PRIM.cyl8, { pos: [0, 4.6, 0.85], rot: [Math.PI / 2, 0, 0], scale: [0.2, 0.7, 0.2], color: PALETTE.woodDark });
+}
+
+function buildCottage(b: GeoBuilder, roof: string, wall: string): void {
+  b.add(PRIM.box, { pos: [0, 0.8, 0], scale: [2.0, 1.6, 1.6], color: wall, facetJitter: 0.03 });
+  b.add(PRIM.cone4, { pos: [0, 2.15, 0], scale: [1.75, 1.1, 1.45], color: roof, facetJitter: 0.05 });
+  b.add(PRIM.box, { pos: [0, 0.45, 0.81], scale: [0.4, 0.7, 0.04], color: PALETTE.woodDark });
+  for (const sx of [-0.6, 0.6]) b.add(PRIM.box, { pos: [sx, 1.0, 0.81], scale: [0.36, 0.36, 0.04], color: '#f7d98b', intensity: 1.2 });
+  b.add(PRIM.box, { pos: [0.6, 2.6, -0.2], scale: [0.3, 0.7, 0.3], color: PALETTE.stoneDark });
+}
+
+function buildSails(b: GeoBuilder): void {
+  b.add(PRIM.cyl8, { rot: [Math.PI / 2, 0, 0], scale: [0.25, 0.3, 0.25], color: PALETTE.woodDark });
+  for (let k = 0; k < 4; k++) {
+    const a = (k * Math.PI) / 2;
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    // spar
+    b.add(PRIM.box, { pos: [-s * 1.6, c * 1.6, 0.06], rot: [0, 0, a], scale: [0.1, 3.2, 0.06], color: PALETTE.woodDark });
+    // canvas panel offset to one side of the spar
+    b.add(PRIM.box, { pos: [-s * 1.85 + c * 0.24, c * 1.85 + s * 0.24, 0.04], rot: [0, 0, a], scale: [0.42, 2.4, 0.02], color: '#f4ead2', facetJitter: 0.04 });
+  }
+}
+
+function buildBoat(b: GeoBuilder): void {
+  b.add(PRIM.box, { pos: [0, 0.06, 0], scale: [2.5, 0.1, 0.86], color: PALETTE.woodDark });
+  for (const sz of [-0.46, 0.46]) {
+    b.add(PRIM.box, { pos: [0, 0.22, sz], rot: [sz > 0 ? -0.18 : 0.18, 0, 0], scale: [2.5, 0.34, 0.07], color: '#4f86c6', facetJitter: 0.04 });
+    b.add(PRIM.box, { pos: [0, 0.4, sz * 1.08], scale: [2.55, 0.05, 0.08], color: PALETTE.cream });
+  }
+  b.add(PRIM.box, { pos: [-1.27, 0.22, 0], scale: [0.07, 0.34, 1.0], color: '#4f86c6' });
+  b.add(PRIM.cone4, { pos: [1.55, 0.22, 0], rot: [0, 0, -Math.PI / 2], scale: [0.25, 0.62, 0.65], color: '#4f86c6' });
+  for (const tx of [-0.6, 0.55]) b.add(PRIM.box, { pos: [tx, 0.3, 0], scale: [0.26, 0.04, 0.88], color: PALETTE.woodLight });
+  for (const sz of [-0.18, 0.18]) {
+    b.add(PRIM.cyl6, { pos: [0.05, 0.36, sz], rot: [0.05, 0, Math.PI / 2 + 0.06], scale: [0.025, 2.0, 0.025], color: PALETTE.woodLight });
+  }
+}
+
+function buildBalloon(b: GeoBuilder, glow: GeoBuilder): void {
+  const cols = PALETTE.balloon;
+  b.add(BALLOON, {
+    pos: [0, 0.75, 0], scale: 1, color: cols[0], facetJitter: 0.03,
+    colorFn: (x, y, z, out) => {
+      const seg = Math.floor(((Math.atan2(z, x) + Math.PI) / (Math.PI * 2)) * 12) % 12;
+      out.set(seg % 2 === 0 ? cols[0] : cols[2]);
+      if (y > 2.5 && y < 3.2) out.set(cols[1]);
+      if (y < 0.7) out.set(cols[3]);
+    },
+  });
+  b.add(PRIM.box, { pos: [0, -0.45, 0], scale: [0.7, 0.5, 0.7], color: '#a77a45', facetJitter: 0.08 });
+  b.add(PRIM.box, { pos: [0, -0.18, 0], scale: [0.74, 0.06, 0.74], color: PALETTE.woodDark });
+  for (const [x, z] of [[-0.32, -0.32], [0.32, -0.32], [-0.32, 0.32], [0.32, 0.32]]) {
+    const rope = between([x, -0.2, z], [x * 1.25, 0.8, z * 1.25]);
+    b.add(PRIM.cyl6, { pos: rope.pos, rot: rope.rot, scale: [0.015, rope.len, 0.015], color: PALETTE.woodDark });
+  }
+  glow.add(PRIM.cone5, { pos: [0, 0.32, 0], scale: [0.14, 0.4, 0.14], color: '#ff9a3d', intensity: 3.5 });
+}
+
+function buildClouds(): THREE.InstancedMesh {
+  const rng = makeRng(321);
+  const mats: THREE.Matrix4[] = [];
+  const dummy = new THREE.Object3D();
+  const clusters = 12;
+  for (let c = 0; c < clusters; c++) {
+    const a = (c / clusters) * Math.PI * 2 + rng() * 0.4;
+    const d = 62 + rng() * 50;
+    const cx = Math.cos(a) * d;
+    const cz = Math.sin(a) * d;
+    const cy = 26 + rng() * 14;
+    const s = 1.6 + rng() * 1.2;
+    const puffs = 6 + Math.floor(rng() * 4);
+    for (let p = 0; p < puffs; p++) {
+      const t = puffs === 1 ? 0 : p / (puffs - 1) - 0.5;
+      const rad = (1.4 + rng() * 1.3) * (1 - Math.abs(t) * 0.8) * s;
+      dummy.position.set(cx + t * 7 * s + (rng() - 0.5) * s, cy + rad * 0.25 + (rng() - 0.3) * 0.6 * s, cz + (rng() - 0.5) * 2.4 * s);
+      dummy.rotation.set(0, a, 0);
+      dummy.scale.set(rad * 1.15, rad * 0.78, rad);
+      dummy.updateMatrix();
+      mats.push(dummy.matrix.clone());
+    }
+  }
+  const mat = new THREE.MeshLambertMaterial({ color: PALETTE.cloud, emissive: PALETTE.cloudShade, emissiveIntensity: 0.7 });
+  const mesh = new THREE.InstancedMesh(PRIM.ico2, mat, mats.length);
+  mats.forEach((m, i) => mesh.setMatrixAt(i, m));
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.frustumCulled = false;
+  mesh.name = 'clouds';
+  return mesh;
+}

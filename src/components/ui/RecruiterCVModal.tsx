@@ -1,10 +1,36 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { useGame } from '../../context/GameContext';
 import { cvData } from '../../data/cvData';
-import { X, Printer, Mail, MapPin, Globe, Github, Linkedin, ExternalLink, Phone, Award } from 'lucide-react';
+import { X, Printer, Mail, MapPin, Github, Linkedin, ExternalLink, Phone, FileText } from 'lucide-react';
+import { tw } from './kit/theme';
+
+/** Restrained section heading: warm game colours, but résumé-clean. */
+const SectionHeading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <h2 className="flex items-center gap-3 text-xs font-black uppercase tracking-[0.16em] text-[#92400e] print:text-black">
+    <span className="shrink-0">{children}</span>
+    <span className="h-[2px] flex-1 rounded-full bg-[#2b1d16]/15 print:bg-black/30" aria-hidden />
+  </h2>
+);
+
+const Bullet: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <li className="flex items-start gap-2 text-[13px] leading-relaxed text-[#3d2a1e] print:text-black">
+    <span className="mt-[0.55em] w-1.5 h-1.5 shrink-0 rounded-full bg-[#d97706] print:bg-black" aria-hidden />
+    <span>{children}</span>
+  </li>
+);
+
+const entry = 'pl-4 border-l-[3px] border-[#e8d6b4] print:border-black/20 space-y-1.5 break-inside-avoid';
+const metaRow = 'flex flex-col sm:flex-row sm:items-baseline justify-between gap-x-3 gap-y-0.5';
+const roleText = 'text-[15px] font-black text-[#2b1d16] print:text-black';
+const periodText = 'text-xs font-bold text-[#6b4730] tabular-nums whitespace-nowrap print:text-black';
+const orgText = 'text-[13px] font-bold text-[#b45309] print:text-black';
+const bodyText = 'text-[13px] leading-relaxed text-[#4a3426] print:text-black';
+const linkCls =
+  'inline-flex items-center gap-1.5 rounded-md hover:text-[#b45309] underline-offset-2 hover:underline focus:outline-none focus-visible:ring-4 focus-visible:ring-[#fde68a]';
 
 export const RecruiterCVModal: React.FC = () => {
   const { activeModal, closeModal } = useGame();
+  const titleId = useId();
 
   if (activeModal !== 'recruiter') return null;
 
@@ -12,272 +38,212 @@ export const RecruiterCVModal: React.FC = () => {
     window.print();
   };
 
+  const work = cvData.timeline.filter((item) => item.type === 'work');
+  const education = cvData.timeline.filter((item) => item.type === 'education');
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-stone-950/70 backdrop-blur-md animate-in fade-in duration-200">
-      {/* Click outside to close backdrop */}
+    <div className="game-fade-in fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#2b1d16]/45 font-game">
+      {/* Click outside to close */}
       <div className="absolute inset-0 print-hidden" onClick={closeModal} />
 
-      {/* Dark Saddle Leather & Brass Folio Outer Casing */}
+      {/* Paper sheet frame (kit card) */}
       <div
         id="recruiter-cv-folio"
-        className="relative z-10 w-full max-w-4xl max-h-[92vh] bg-[#2a170e] rounded-3xl p-3 sm:p-5 border-4 border-[#5c2b14] shadow-[0_30px_70px_rgba(0,0,0,0.7)] flex flex-col font-sans"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className={`game-modal-pop relative z-10 w-full max-w-4xl max-h-[calc(100dvh-1.5rem)] flex flex-col ${tw.card}`}
       >
-        {/* Brass Corner Brackets */}
-        <div className="absolute top-2 left-2 w-5 h-5 border-t-2 border-l-2 border-amber-500/80 pointer-events-none print-hidden" />
-        <div className="absolute top-2 right-2 w-5 h-5 border-t-2 border-r-2 border-amber-500/80 pointer-events-none print-hidden" />
-        <div className="absolute bottom-2 left-2 w-5 h-5 border-b-2 border-l-2 border-amber-500/80 pointer-events-none print-hidden" />
-        <div className="absolute bottom-2 right-2 w-5 h-5 border-b-2 border-r-2 border-amber-500/80 pointer-events-none print-hidden" />
-
-        {/* Tactile Crimson Wax Seal Close Button */}
-        <button
-          onClick={closeModal}
-          className="absolute -top-3.5 -right-3.5 z-30 w-10 h-10 rounded-full bg-[#dc2626] hover:bg-[#b91c1c] text-white border-b-4 border-[#991b1b] active:border-b-0 active:translate-y-1 shadow-xl flex items-center justify-center cursor-pointer transition-all print-hidden"
-          title="Close [ESC]"
-        >
-          <X className="w-5 h-5 stroke-[3]" />
-        </button>
-
-        {/* Header Stamped Banner Plate */}
-        <div className="bg-gradient-to-r from-[#381e12] via-[#4a2617] to-[#381e12] rounded-2xl p-3.5 sm:px-6 mb-3 border border-[#6b3519] shadow-inner flex flex-col sm:flex-row items-center justify-between gap-3 text-amber-100 shrink-0 print-hidden">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 via-amber-600 to-amber-800 border-2 border-amber-300 shadow-md flex items-center justify-center text-amber-950 shrink-0">
-              <Award className="w-6 h-6 stroke-[2.5]" />
+        {/* Toolbar (screen only) */}
+        <div className="print-hidden shrink-0 flex flex-wrap items-center justify-between gap-2 px-4 sm:px-6 py-3 border-b-[3px] border-[#2b1d16] bg-[#f6ecd6] rounded-t-[19px]">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className="shrink-0 w-10 h-10 rounded-xl border-[3px] border-[#2b1d16] shadow-[0_3px_0_0_#2b1d16] bg-[#fde68a] flex items-center justify-center"
+              aria-hidden
+            >
+              <FileText className="w-5 h-5 text-[#2b1d16]" strokeWidth={2.5} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono font-black uppercase tracking-[0.25em] text-amber-400">
-                  OFFICIAL DOSSIER • RECRUITER 2D CV
-                </span>
-                <span className="text-amber-500">•</span>
-                <span className="text-[10px] font-mono font-bold text-amber-300">IIT JODHPUR</span>
-              </div>
-              <h2 className="text-base sm:text-lg font-black font-serif tracking-tight text-white mt-0.5">
-                AIRMAIL POSTAL DISPATCH • SCHOLAR RECORD
-              </h2>
-              <p className="text-xs text-amber-200/80 font-medium">
-                Verified Candidate Portfolio • Systems & Machine Learning Engineer
-              </p>
+            <div className="min-w-0">
+              <p className={tw.label}>Résumé</p>
+              <p className={`${tw.heading} text-base sm:text-lg leading-tight`}>Printable CV</p>
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-amber-950 border-b-4 border-amber-700 active:border-b-0 active:translate-y-1 text-xs font-black shadow-md transition cursor-pointer"
-            >
-              <Printer className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-2 mr-6 sm:mr-4">
+            <button onClick={handlePrint} className={`${tw.btn} ${tw.btnPrimary}`}>
+              <Printer className="w-4 h-4" strokeWidth={2.5} />
               <span>Print / PDF</span>
             </button>
           </div>
+          <button
+            onClick={closeModal}
+            aria-label="Close CV"
+            title="Close [ESC]"
+            className={`${tw.btn} ${tw.btnPaper} !p-2 absolute -top-3 -right-3 rounded-full z-20`}
+          >
+            <X className="w-5 h-5" strokeWidth={3} />
+          </button>
         </div>
 
-        {/* Printable Resume Content (Warm Parchment in Web View, Crisp Clean in Print Mode) */}
+        {/* Printable résumé content */}
         <div
           id="recruiter-cv-dossier"
-          className="relative flex-1 bg-[#fbf7ee] rounded-2xl p-6 sm:p-8 overflow-y-auto space-y-8 border border-[#dfceb5] shadow-inner text-[#451a03] select-text print:bg-white print:p-0 print:text-black print:overflow-visible"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-10 py-6 sm:py-8 space-y-7 text-[#2b1d16] bg-[#fffaf0] rounded-b-[19px] select-text font-sans print:bg-white print:p-0 print:text-black print:overflow-visible"
         >
-          {/* Subtle Draft Dot Texture */}
-          <div
-            className="absolute inset-0 rounded-2xl pointer-events-none opacity-25"
-            style={{
-              backgroundImage: 'radial-gradient(#b45309 0.75px, transparent 0.75px)',
-              backgroundSize: '20px 20px',
-            }}
-          />
-          {/* Header Banner with Postmark Stamp */}
-          <div className="border-b-2 border-[#fed7aa] pb-6 space-y-3 relative">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-              <div>
-                <h1 className="text-3xl sm:text-4xl font-black font-serif text-[#451a03] tracking-tight">
-                  {cvData.name}
-                </h1>
-                <p className="text-base font-bold text-[#b45309] pt-0.5">{cvData.title}</p>
-              </div>
-
-              {/* Vintage Ink Cancellation Postmark Stamp */}
-              <div className="w-24 h-24 rounded-full border-2 border-dashed border-[#1e293b]/50 -rotate-12 flex items-center justify-center text-center p-1 pointer-events-none self-end sm:self-auto">
-                <div className="w-20 h-20 rounded-full border border-[#1e293b]/30 flex flex-col items-center justify-center text-[7px] font-mono font-bold uppercase text-[#1e293b]/80">
-                  <span>★ IIT JODHPUR ★</span>
-                  <span className="font-sans font-black text-[9px] text-[#b45309]">2026</span>
-                  <span>VERIFIED RECORD</span>
-                </div>
-              </div>
+          {/* Header */}
+          <header className="space-y-3 pb-5 border-b-[3px] border-[#2b1d16]/80 print:border-black">
+            <div>
+              <h1 id={titleId} className="font-game text-3xl sm:text-4xl font-black tracking-tight text-[#2b1d16] print:text-black">
+                {cvData.name}
+              </h1>
+              <p className="text-base font-bold text-[#b45309] pt-0.5 print:text-black">{cvData.title}</p>
             </div>
 
-            {/* Postal Coordinates & Contact Links */}
-            <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs font-mono text-[#57534e]">
-              <span className="flex items-center gap-1.5 font-sans font-semibold">
-                <MapPin className="w-3.5 h-3.5 text-[#d97706]" />
+            <ul className="flex flex-wrap gap-x-5 gap-y-1.5 text-[13px] text-[#4a3426] print:text-black">
+              <li className="flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-[#9a6a43]" aria-hidden />
                 {cvData.location}
-              </span>
-              <span className="flex items-center gap-1.5 font-bold text-[#451a03]">
-                <Mail className="w-3.5 h-3.5 text-[#d97706]" />
-                {cvData.email}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Phone className="w-3.5 h-3.5 text-[#059669]" />
+              </li>
+              <li>
+                <a href={`mailto:${cvData.email}`} className={`${linkCls} font-semibold`}>
+                  <Mail className="w-3.5 h-3.5 text-[#9a6a43]" aria-hidden />
+                  {cvData.email}
+                </a>
+              </li>
+              <li className="flex items-center gap-1.5">
+                <Phone className="w-3.5 h-3.5 text-[#9a6a43]" aria-hidden />
                 {cvData.phone}
-              </span>
-            </div>
+              </li>
+              <li>
+                <a href={cvData.github} target="_blank" rel="noreferrer" className={linkCls}>
+                  <Github className="w-3.5 h-3.5 text-[#9a6a43]" aria-hidden />
+                  github.com/hhemantpatel
+                </a>
+              </li>
+              <li>
+                <a href={cvData.linkedin} target="_blank" rel="noreferrer" className={linkCls}>
+                  <Linkedin className="w-3.5 h-3.5 text-[#9a6a43]" aria-hidden />
+                  linkedin.com/in/hemant-patel-992753369
+                </a>
+              </li>
+            </ul>
 
-            <div className="flex flex-wrap gap-4 text-xs font-sans font-semibold pt-1">
-              <a
-                href={cvData.github}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 text-[#78350f] hover:text-[#b45309] transition"
-              >
-                <Github className="w-3.5 h-3.5" />
-                <span>github.com/hhemantpatel</span>
-              </a>
-              <a
-                href={cvData.linkedin}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 text-[#0284c7] hover:text-[#0369a1] transition"
-              >
-                <Linkedin className="w-3.5 h-3.5" />
-                <span>linkedin.com/in/hemant-patel-992753369</span>
-              </a>
-            </div>
+            <p className="text-sm text-[#4a3426] leading-relaxed print:text-black">{cvData.bioShort}</p>
+          </header>
 
-            <p className="text-xs sm:text-sm text-[#57534e] leading-relaxed pt-2 font-serif italic">
-              {cvData.bioShort}
-            </p>
-          </div>
-
-          {/* 1. Technical Core Competencies */}
-          <div className="space-y-3">
-            <h2 className="text-xs font-black uppercase tracking-widest text-[#78350f] flex items-center gap-2">
-              <span>📋</span>
-              <span>Technical Core Competencies</span>
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-sans">
+          {/* Skills */}
+          <section className="space-y-3">
+            <SectionHeading>Technical Skills</SectionHeading>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
               {cvData.skillCategories.map((cat, idx) => (
-                <div key={idx} className="p-3.5 rounded-xl bg-[#faf5eb] border-2 border-[#fed7aa] shadow-xs">
-                  <p className="font-extrabold text-[#451a03] mb-1">{cat.category}</p>
-                  <p className="text-[#57534e] leading-relaxed">
-                    {cat.skills.map((s) => s.name).join(', ')}
-                  </p>
+                <div key={idx} className="break-inside-avoid">
+                  <dt className="text-[13px] font-black text-[#2b1d16] print:text-black">{cat.category}</dt>
+                  <dd className={bodyText}>{cat.skills.map((s) => s.name).join(', ')}</dd>
                 </div>
               ))}
-            </div>
-          </div>
+            </dl>
+          </section>
 
-          {/* 2. Professional Work Experience */}
-          <div className="space-y-4">
-            <h2 className="text-xs font-black uppercase tracking-widest text-[#78350f] flex items-center gap-2">
-              <span>💼</span>
-              <span>Professional Experience</span>
-            </h2>
-            <div className="space-y-3 font-sans">
-              {cvData.timeline
-                .filter((item) => item.type === 'work')
-                .map((item) => (
-                  <div key={item.id} className="p-4 rounded-xl bg-[#faf5eb] border-2 border-[#fed7aa] shadow-xs space-y-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                      <p className="text-sm font-black text-[#451a03]">{item.role}</p>
-                      <span className="text-xs font-mono font-bold text-[#b45309] bg-[#fef3c7] px-2.5 py-0.5 rounded-full border border-[#fde68a] w-fit">
-                        {item.period}
-                      </span>
-                    </div>
-                    <p className="text-xs font-bold text-[#b45309]">
-                      {item.company} • <span className="text-[#78716c] font-normal">{item.location}</span>
-                    </p>
-                    <p className="text-xs text-[#57534e]">{item.summary}</p>
-                    <ul className="space-y-1 pt-1">
-                      {item.bullets.map((b, bIdx) => (
-                        <li key={bIdx} className="text-xs text-[#44403c] flex items-start gap-2">
-                          <span className="text-[#d97706] font-bold">◈</span>
-                          <span>{b}</span>
-                        </li>
-                      ))}
-                    </ul>
+          {/* Experience */}
+          <section className="space-y-4">
+            <SectionHeading>Professional Experience</SectionHeading>
+            <div className="space-y-5">
+              {work.map((item) => (
+                <article key={item.id} className={entry}>
+                  <div className={metaRow}>
+                    <h3 className={roleText}>{item.role}</h3>
+                    <span className={periodText}>{item.period}</span>
                   </div>
-                ))}
+                  <p className={orgText}>
+                    {item.company} <span className="font-medium text-[#6b4730] print:text-black">· {item.location}</span>
+                  </p>
+                  <p className={bodyText}>{item.summary}</p>
+                  <ul className="space-y-1 pt-0.5">
+                    {item.bullets.map((b, bIdx) => (
+                      <Bullet key={bIdx}>{b}</Bullet>
+                    ))}
+                  </ul>
+                </article>
+              ))}
             </div>
-          </div>
+          </section>
 
-          {/* 3. Featured Projects & Systems */}
-          <div className="space-y-4">
-            <h2 className="text-xs font-black uppercase tracking-widest text-[#78350f] flex items-center gap-2">
-              <span>🚀</span>
-              <span>Key Projects & Systems</span>
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-sans">
+          {/* Projects */}
+          <section className="space-y-4">
+            <SectionHeading>Key Projects</SectionHeading>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
               {cvData.projects.map((proj) => (
-                <div key={proj.id} className="p-4 rounded-xl bg-[#faf5eb] border-2 border-[#fed7aa] shadow-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-black text-[#451a03]">{proj.title}</p>
+                <article key={proj.id} className={entry}>
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className={roleText}>{proj.title}</h3>
                     {proj.githubUrl && (
-                      <a href={proj.githubUrl} target="_blank" rel="noreferrer" className="text-[#78350f] hover:text-[#b45309]">
-                        <ExternalLink className="w-3.5 h-3.5" />
+                      <a
+                        href={proj.githubUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`${proj.title} source code`}
+                        className={`${linkCls} text-[#6b4730] p-0.5 print-hidden`}
+                      >
+                        <ExternalLink className="w-4 h-4" />
                       </a>
                     )}
                   </div>
-                  <p className="text-xs font-bold text-[#d97706]">{proj.tagline}</p>
-                  <p className="text-xs text-[#57534e] leading-relaxed">{proj.description}</p>
-                  <div className="flex flex-wrap gap-1 pt-1">
+                  <p className={orgText}>{proj.tagline}</p>
+                  <p className={bodyText}>{proj.description}</p>
+                  <ul className="flex flex-wrap gap-1.5 pt-0.5" aria-label="Technologies">
                     {proj.tags.map((t) => (
-                      <span key={t} className="text-[10px] px-2 py-0.5 rounded-md bg-[#fffdfa] text-[#78350f] border border-[#fed7aa] font-medium">
+                      <li
+                        key={t}
+                        className="text-xs px-2 py-0.5 rounded-full bg-[#f6ecd6] text-[#5c4033] border border-[#2b1d16]/15 font-semibold print:bg-transparent print:text-black print:border-black/30"
+                      >
                         {t}
-                      </span>
+                      </li>
                     ))}
-                  </div>
-                </div>
+                  </ul>
+                </article>
               ))}
             </div>
-          </div>
+          </section>
 
-          {/* 4. Education */}
-          <div className="space-y-3">
-            <h2 className="text-xs font-black uppercase tracking-widest text-[#78350f] flex items-center gap-2">
-              <span>🎓</span>
-              <span>Academic Residency</span>
-            </h2>
-            <div className="space-y-3 font-sans">
-              {cvData.timeline
-                .filter((item) => item.type === 'education')
-                .map((item) => (
-                  <div key={item.id} className="p-4 rounded-xl bg-[#faf5eb] border-2 border-[#fed7aa] shadow-xs">
-                    <div className="flex justify-between items-center">
-                      <p className="text-sm font-black text-[#451a03]">{item.role}</p>
-                      <span className="text-xs font-mono font-bold text-[#b45309]">{item.period}</span>
-                    </div>
-                    <p className="text-xs font-bold text-[#b45309]">{item.company} • {item.location}</p>
-                    <p className="text-xs text-[#57534e] pt-1">{item.summary}</p>
+          {/* Education */}
+          <section className="space-y-4">
+            <SectionHeading>Education</SectionHeading>
+            <div className="space-y-4">
+              {education.map((item) => (
+                <article key={item.id} className={entry}>
+                  <div className={metaRow}>
+                    <h3 className={roleText}>{item.role}</h3>
+                    <span className={periodText}>{item.period}</span>
                   </div>
-                ))}
+                  <p className={orgText}>
+                    {item.company} <span className="font-medium text-[#6b4730] print:text-black">· {item.location}</span>
+                  </p>
+                  <p className={bodyText}>{item.summary}</p>
+                </article>
+              ))}
             </div>
-          </div>
+          </section>
 
-          {/* 5. Leadership & Positions of Responsibility */}
+          {/* Leadership */}
           {cvData.leadership && (
-            <div className="space-y-3">
-              <h2 className="text-xs font-black uppercase tracking-widest text-[#78350f] flex items-center gap-2">
-                <span>🏆</span>
-                <span>Leadership & Positions of Responsibility</span>
-              </h2>
-              <div className="space-y-3 font-sans">
+            <section className="space-y-4">
+              <SectionHeading>Leadership &amp; Responsibilities</SectionHeading>
+              <div className="space-y-4">
                 {cvData.leadership.map((l, lIdx) => (
-                  <div key={lIdx} className="p-4 rounded-xl bg-[#faf5eb] border-2 border-[#fed7aa] shadow-xs space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <p className="text-sm font-black text-[#451a03]">{l.role}</p>
-                      <span className="text-xs font-mono font-bold text-[#b45309]">{l.period}</span>
+                  <article key={lIdx} className={entry}>
+                    <div className={metaRow}>
+                      <h3 className={roleText}>{l.role}</h3>
+                      <span className={periodText}>{l.period}</span>
                     </div>
-                    <p className="text-xs font-bold text-[#d97706]">{l.org}</p>
-                    <ul className="space-y-1 pt-1">
+                    <p className={orgText}>{l.org}</p>
+                    <ul className="space-y-1 pt-0.5">
                       {l.bullets.map((b, bIdx) => (
-                        <li key={bIdx} className="text-xs text-[#44403c] flex items-start gap-2">
-                          <span className="text-[#d97706] font-bold">◈</span>
-                          <span>{b}</span>
-                        </li>
+                        <Bullet key={bIdx}>{b}</Bullet>
                       ))}
                     </ul>
-                  </div>
+                  </article>
                 ))}
               </div>
-            </div>
+            </section>
           )}
         </div>
       </div>

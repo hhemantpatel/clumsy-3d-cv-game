@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Environment, ContactShadows, Sparkles } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, HueSaturation } from '@react-three/postprocessing';
+import { SUN_POSITION } from './env/palette';
 import * as THREE from 'three';
 import { getPhysicsEngine } from '../../wasm/engine';
 import { PhysicsEngine } from '../../wasm/pkg/game_engine_wasm';
@@ -56,7 +57,7 @@ export const GameCanvas: React.FC = () => {
         {/* 2. Soft Natural Warm Sunlight & Shadows (Sun direction aligned with SkyDome visible sun [65, 80, -60]) */}
         <directionalLight
           castShadow
-          position={[26, 32, -24]}
+          position={SUN_POSITION}
           intensity={1.35}
           color="#fef9c3"
           shadow-mapSize-width={1024}

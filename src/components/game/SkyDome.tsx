@@ -1,125 +1,108 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
+import { PALETTE, SUN_DIRECTION } from './env/palette';
+import { GLSL_NOISE, envUniforms } from './env/materials';
 
 /**
- * Procedural atmospheric sky dome with sun disc, solar halo, and cirrus wisps.
- * Blends seamlessly with scene fog at the horizon with zero jarring ground boundaries.
+ * Procedural sky in ONE draw call:
+ * - smooth zenith -> horizon gradient whose horizon equals the scene fog colour,
+ * - analytic sun disc + layered glow evaluated per view direction (always perfectly round),
+ *   placed along the same direction as GameCanvas' shadow-casting light,
+ * - soft, drifting high-altitude cirrus streaks from projected fbm noise.
+ * The dome is re-centred on the camera every frame so it can never be reached or clipped.
  */
-export const SkyDome: React.FC = () => {
-  const sunRef = useRef<THREE.Mesh>(null);
-  const haloRef = useRef<THREE.Mesh>(null);
+const RADIUS = 200; // < camera far (240)
 
-  useFrame(() => {
-    const t = performance.now() * 0.00008;
-    if (sunRef.current) {
-      const s = 1.0 + Math.sin(t * 12) * 0.03;
-      sunRef.current.scale.set(s, s, s);
-    }
-    if (haloRef.current) {
-      const h = 1.0 + Math.sin(t * 8) * 0.05;
-      haloRef.current.scale.set(h, h, h);
-    }
+const vertexShader = /* glsl */ `
+varying vec3 vDir;
+void main() {
+  vDir = position;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const fragmentShader = /* glsl */ `
+uniform vec3 uZenith;
+uniform vec3 uMid;
+uniform vec3 uHorizon;
+uniform vec3 uSunDir;
+uniform vec3 uSunCore;
+uniform vec3 uSunGlow;
+uniform float uTime;
+varying vec3 vDir;
+${GLSL_NOISE}
+
+void main() {
+  vec3 d = normalize(vDir);
+  float y = d.y;
+
+  // Gradient (everything at/below the horizon is exactly the fog colour)
+  vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.32, y));
+  col = mix(col, uZenith, smoothstep(0.3, 1.0, y));
+
+  // Sun: crisp round disc + wide warm glow + horizon warmth on the sun side
+  float sd = max(dot(d, uSunDir), 0.0);
+  float disc = smoothstep(0.99935, 0.99965, sd);
+  float glow = pow(sd, 900.0) * 1.2 + pow(sd, 48.0) * 0.35 + pow(sd, 6.0) * 0.12;
+  col += uSunGlow * glow;
+  col += uSunGlow * 0.08 * pow(sd, 2.0) * (1.0 - smoothstep(0.0, 0.35, y));
+
+  // Cirrus wisps: stretched fbm projected onto a high cloud plane
+  if (y > 0.015) {
+    vec2 p = d.xz / (y + 0.12);
+    p += vec2(uTime * 0.006, uTime * 0.0025);
+    float c = 0.6;
+    float sn = sin(c), cs = cos(c);
+    p = mat2(cs, -sn, sn, cs) * p;
+    float n = envFbm(vec2(p.x * 0.55, p.y * 2.6) * 1.4);
+    float detail = envNoise(vec2(p.x * 2.0, p.y * 9.0));
+    float wisp = smoothstep(0.52, 0.82, n + detail * 0.12);
+    float fade = smoothstep(0.015, 0.22, y) * (1.0 - 0.5 * smoothstep(0.55, 1.0, y));
+    col = mix(col, vec3(1.0), wisp * fade * 0.42);
+  }
+
+  col = mix(col, uSunCore * 3.0, disc);
+
+  gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}
+`;
+
+export const SkyDome: React.FC = () => {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  const { geometry, material } = useMemo(() => {
+    const geometry = new THREE.SphereGeometry(RADIUS, 32, 16);
+    const material = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        uZenith: { value: new THREE.Color(PALETTE.skyZenith) },
+        uMid: { value: new THREE.Color(PALETTE.skyMid) },
+        uHorizon: { value: new THREE.Color(PALETTE.skyHorizon) },
+        uSunDir: { value: SUN_DIRECTION.clone() },
+        uSunCore: { value: new THREE.Color(PALETTE.sunCore) },
+        uSunGlow: { value: new THREE.Color(PALETTE.sunGlow) },
+        uTime: envUniforms.uTime,
+      },
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+    });
+    return { geometry, material };
+  }, []);
+
+  useEffect(() => () => {
+    geometry.dispose();
+    material.dispose();
+  }, [geometry, material]);
+
+  // Follow the camera (position only) so the sky is always "at infinity"
+  useFrame(({ camera }) => {
+    if (meshRef.current) meshRef.current.position.copy(camera.position);
   });
 
-  // Procedural sky gradient sphere material
-  const skyGeo = useMemo(() => {
-    const geo = new THREE.SphereGeometry(210, 48, 24);
-    const colors: number[] = [];
-    const pos = geo.attributes.position;
-
-    // Atmospheric palette matching scene fog '#bfdbfe'
-    const zenith = new THREE.Color('#1d4ed8');       // Deep crisp sky blue at top
-    const midSky = new THREE.Color('#60a5fa');       // Bright sky blue
-    const horizon = new THREE.Color('#bfdbfe');      // Soft hazy atmospheric horizon
-
-    for (let i = 0; i < pos.count; i++) {
-      const y = pos.getY(i) / 210; // -1 to 1
-      const color = new THREE.Color();
-
-      if (y > 0.35) {
-        // Upper sky: midSky → zenith
-        const t = Math.min((y - 0.35) / 0.65, 1.0);
-        color.lerpColors(midSky, zenith, t);
-      } else if (y > 0.0) {
-        // Lower sky: horizon → midSky
-        const t = y / 0.35;
-        color.lerpColors(horizon, midSky, t);
-      } else {
-        // At and below horizon: pure atmospheric horizon color matching fog
-        color.copy(horizon);
-      }
-
-      colors.push(color.r, color.g, color.b);
-    }
-
-    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    return geo;
-  }, []);
-
-  return (
-    <group>
-      {/* Sky Gradient Dome */}
-      <mesh geometry={skyGeo}>
-        <meshBasicMaterial vertexColors side={THREE.BackSide} fog={false} />
-      </mesh>
-
-      {/* Warm Golden Sun Disc in South-East Sky */}
-      <group position={[65, 80, -60]}>
-        {/* Soft Outer Solar Halo */}
-        <mesh ref={haloRef}>
-          <circleGeometry args={[22, 32]} />
-          <meshBasicMaterial color="#fef08a" transparent opacity={0.15} fog={false} side={THREE.DoubleSide} />
-        </mesh>
-        {/* Inner Warm Glow Ring */}
-        <mesh>
-          <circleGeometry args={[11, 32]} />
-          <meshBasicMaterial color="#fde047" transparent opacity={0.3} fog={false} side={THREE.DoubleSide} />
-        </mesh>
-        {/* Radiant Core */}
-        <mesh ref={sunRef}>
-          <circleGeometry args={[5.2, 32]} />
-          <meshBasicMaterial color="#fffef0" fog={false} side={THREE.DoubleSide} />
-        </mesh>
-      </group>
-
-      {/* Delicate Cirrus Cloud Streaks */}
-      <CirrusWisps />
-    </group>
-  );
-};
-
-// High-altitude wispy cirrus streaks
-const CirrusWisps: React.FC = () => {
-  const wisps = useMemo(() => {
-    const list: { pos: [number, number, number]; rot: number; scaleX: number; scaleZ: number }[] = [];
-    for (let i = 0; i < 14; i++) {
-      const angle = (i / 14) * Math.PI * 2 + Math.sin(i) * 0.3;
-      const dist = 95 + ((i * 29) % 45);
-      list.push({
-        pos: [Math.cos(angle) * dist, 68 + ((i * 17) % 22), Math.sin(angle) * dist],
-        rot: angle + Math.PI / 2,
-        scaleX: 24 + ((i * 11) % 18),
-        scaleZ: 3.2 + ((i * 5) % 3),
-      });
-    }
-    return list;
-  }, []);
-
-  return (
-    <group>
-      {wisps.map((w, i) => (
-        <mesh key={i} position={w.pos} rotation={[0, w.rot, 0]}>
-          <planeGeometry args={[w.scaleX, w.scaleZ]} />
-          <meshBasicMaterial
-            color="#ffffff"
-            transparent
-            opacity={0.14 + ((i % 3) * 0.03)}
-            fog={false}
-            side={THREE.DoubleSide}
-          />
-        </mesh>
-      ))}
-    </group>
-  );
+  return <mesh ref={meshRef} geometry={geometry} material={material} renderOrder={-1000} frustumCulled={false} />;
 };

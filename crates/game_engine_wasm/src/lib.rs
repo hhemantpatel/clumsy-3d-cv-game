@@ -188,7 +188,8 @@ impl PhysicsEngine {
             TriggerZone { id: "bed", x: 4.2, z: -2.2, radius: 2.0 },
             TriggerZone { id: "contact", x: 1.6, z: 9.8, radius: 2.2 },
             TriggerZone { id: "about", x: -7.5, z: 5.8, radius: 2.2 },
-            TriggerZone { id: "badminton", x: 6.8, z: 5.2, radius: 2.4 },
+            // Planter rims keep the player >= 2.6 (sides) / 3.7 (ends) from the centre, so the zone must reach past them
+            TriggerZone { id: "badminton", x: 6.8, z: 5.2, radius: 4.0 },
         ];
 
         // Seed 45 floating ambient leaves / wind particles in the yard and sky

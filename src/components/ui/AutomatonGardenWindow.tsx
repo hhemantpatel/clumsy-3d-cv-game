@@ -1,487 +1,554 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useGarden, GARDEN_MISSIONS } from '../../context/GardenContext';
+import React, { useEffect, useRef, useState } from 'react';
+import { useGardenSim, useGardenUI } from '../../context/GardenContext';
+import type { Speed } from '../../context/GardenContext';
+import { CROPS } from '../../garden/types';
+import type { CropType } from '../../garden/types';
+import { CROP_TYPES } from '../../garden/sim';
+import { goalText } from '../../garden/missions';
+import { tw } from './kit/theme';
+import { DroneIcon } from './garden/DroneIcon';
+import { CodeEditor, LogPanel } from './garden/CodeEditor';
+import { CodeTerminalWindow } from './garden/CodeTerminalWindow';
+import { useFloatingWindow, ResizeGrip } from './garden/useFloatingWindow';
 
 interface AutomatonGardenWindowProps {
   onClose: () => void;
 }
 
+const POP_OUT_KEY = 'clumsy_cv_garden_editor_popped_out';
+
+const API_REFERENCE: [string, string][] = [
+  ['move(east)', 'Fly one tile: north / east / south / west. The field wraps around. (1 tick)'],
+  ['move()', 'Fly one tile in the direction the drone is facing. (1 tick)'],
+  ['turn_left() / turn_right()', 'Rotate the drone 90 degrees. (1 tick)'],
+  ['plant("carrot")', 'Buy & plant a seed on empty soil. Returns True on success. (1 tick)'],
+  ['water()', 'Wet the soil for 10 ticks: crops grow twice as fast. (1 tick)'],
+  ['harvest()', 'Collect a ripe crop for coins. Unripe crops are destroyed! (1 tick)'],
+  ['wait()', 'Do nothing for one tick while crops grow. (1 tick)'],
+  ['can_harvest()', 'True if the crop under the drone is ripe. (free)'],
+  ['is_empty()', 'True if nothing is planted here. (free)'],
+  ['is_watered()', 'True if the soil here is wet. (free)'],
+  ['get_crop()', 'Crop name here, or None. (free)'],
+  ['get_growth()', 'Growth of the crop here, 0.0 to 1.0. (free)'],
+  ['get_x() / get_y()', 'Drone column / row, 0 to 4. (free)'],
+  ['get_coins() / get_tick()', 'Your coins / ticks elapsed this run. (free)'],
+  ['print(a, b, ...)', 'Write to the console log.'],
+  ['range, abs, min, max, len, str, int, round', 'Python builtins.'],
+  ['if / elif / else, while, for, def, return', 'Also: break, continue, pass, and / or / not, x if c else y.'],
+];
+
+const stars = (n: number) => '★'.repeat(n) + '☆'.repeat(Math.max(0, 3 - n));
+
+// ---- toon style fragments local to the console (built on the kit tokens) ----
+const focusRing = 'focus:outline-none focus-visible:ring-4 focus-visible:ring-[#fde68a]';
+/** Small chunky pressable button for the dense console. */
+const smallBtn = `inline-flex items-center justify-center gap-1 rounded-lg border-2 border-[#2b1d16] bg-[#fffaf0] text-[#2b1d16] font-black shadow-[0_2px_0_0_#2b1d16] hover:-translate-y-0.5 active:translate-y-[2px] active:shadow-none transition-transform cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none ${focusRing}`;
+const statChip = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full border-2 font-bold text-[11px] whitespace-nowrap';
+const chipNeutral = `${statChip} bg-[#fffaf0] border-[#2b1d16]/60 text-[#2b1d16]`;
+
 export const AutomatonGardenWindow: React.FC<AutomatonGardenWindowProps> = ({ onClose }) => {
+  const { drone, grid, isRunning, tick } = useGardenSim();
   const {
-    grid,
-    drone,
-    score,
+    resetCode,
+    coins,
     inventory,
+    actionsUsed,
+    maxActions,
+    missions,
     activeMissionIdx,
-    code,
-    isRunning,
+    activeMission,
+    selectMission,
+    nextMission,
+    isMissionUnlocked,
+    bestStars,
+    lifetimeCoins,
+    goal,
+    completion,
+    dismissCompletion,
+    hintsShown,
+    revealHint,
+    lockedCrops,
     speed,
-    logs,
-    missionCleared,
-    selectedSeed,
-    setSelectedSeed,
-    setCode,
     setSpeed,
+    availableSpeeds,
     runScript,
     stopScript,
     resetField,
-    selectMission,
+    selectedSeed,
+    setSelectedSeed,
     manualStep,
     manualPlant,
     manualWater,
     manualHarvest,
-  } = useGarden();
+    manualWait,
+  } = useGardenUI();
 
-  // Floating Window Drag & Resize State
-  const defaultWidth = Math.max(320, Math.min(580, window.innerWidth - 24));
-  const defaultHeight = Math.max(320, Math.min(650, window.innerHeight - 60));
-  const defaultX = Math.max(12, window.innerWidth - defaultWidth - 20);
-  const defaultY = 24;
-
-  const [position, setPosition] = useState({ x: defaultX, y: defaultY });
-  const [size, setSize] = useState({ width: defaultWidth, height: defaultHeight });
+  // ---------------- floating window: drag / resize / minimise ----------------
+  const minWidth = () => Math.min(380, window.innerWidth - 16);
+  const { rect, onDragStart: handleDragStart, onResizeStart: handleResizeStart } = useFloatingWindow({
+    initial: () => {
+      const width = Math.max(minWidth(), Math.min(600, window.innerWidth - 16));
+      const height = Math.max(320, Math.min(720, window.innerHeight - 32));
+      return { x: Math.max(8, window.innerWidth - width - 16), y: 16, width, height };
+    },
+    minWidth,
+    minHeight: 280,
+  });
   const [isMinimized, setIsMinimized] = useState(false);
-  const [showCheatsheet, setShowCheatsheet] = useState(false);
-  const [showManualPad, setShowManualPad] = useState(false);
+  const [showApi, setShowApi] = useState(false);
+  const [showManual, setShowManual] = useState(false);
 
-  const windowRef = useRef<HTMLDivElement>(null);
-  const dragStartRef = useRef<{ startX: number; startY: number; initX: number; initY: number } | null>(null);
-  const resizeStartRef = useRef<{ startX: number; startY: number; initW: number; initH: number } | null>(null);
-
-  // Dragging logic
-  const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
-    // Only drag from header, ignore buttons
-    if ((e.target as HTMLElement).tagName === 'BUTTON' || (e.target as HTMLElement).closest('button')) {
-      return;
+  // ---------------- pop-out editor window ----------------
+  const [editorPoppedOut, setEditorPoppedOut] = useState(() => {
+    try {
+      return localStorage.getItem(POP_OUT_KEY) === '1' && window.innerWidth >= 900;
+    } catch {
+      return false;
     }
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-
-    dragStartRef.current = {
-      startX: clientX,
-      startY: clientY,
-      initX: position.x,
-      initY: position.y,
-    };
-  };
-
-  // Resizing logic
-  const handleResizeStart = (e: React.MouseEvent | React.TouchEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-
-    resizeStartRef.current = {
-      startX: clientX,
-      startY: clientY,
-      initW: size.width,
-      initH: size.height,
-    };
-  };
-
-  useEffect(() => {
-    const handlePointerMove = (e: MouseEvent | TouchEvent) => {
-      const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : (e as MouseEvent).clientY;
-
-      if (dragStartRef.current) {
-        const dx = clientX - dragStartRef.current.startX;
-        const dy = clientY - dragStartRef.current.startY;
-        const nextX = Math.max(10, Math.min(window.innerWidth - 120, dragStartRef.current.initX + dx));
-        const nextY = Math.max(10, Math.min(window.innerHeight - 60, dragStartRef.current.initY + dy));
-        setPosition({ x: nextX, y: nextY });
-      }
-
-      if (resizeStartRef.current) {
-        const dx = clientX - resizeStartRef.current.startX;
-        const dy = clientY - resizeStartRef.current.startY;
-        const nextW = Math.max(300, Math.min(window.innerWidth - 20, resizeStartRef.current.initW + dx));
-        const nextH = Math.max(260, Math.min(window.innerHeight - 20, resizeStartRef.current.initH + dy));
-        setSize({ width: nextW, height: nextH });
-      }
-    };
-
-    const handlePointerUp = () => {
-      dragStartRef.current = null;
-      resizeStartRef.current = null;
-    };
-
-    window.addEventListener('mousemove', handlePointerMove);
-    window.addEventListener('mouseup', handlePointerUp);
-    window.addEventListener('touchmove', handlePointerMove);
-    window.addEventListener('touchend', handlePointerUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handlePointerMove);
-      window.removeEventListener('mouseup', handlePointerUp);
-      window.removeEventListener('touchmove', handlePointerMove);
-      window.removeEventListener('touchend', handlePointerUp);
-    };
-  }, []);
-
-  // Handle Tab key in editor & allow Escape to unfocus
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const textarea = e.currentTarget;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const val = textarea.value;
-      textarea.value = val.substring(0, start) + '    ' + val.substring(end);
-      textarea.selectionStart = textarea.selectionEnd = start + 4;
-      setCode(textarea.value);
-    } else if (e.key === 'Escape') {
-      e.currentTarget.blur();
+  });
+  const [front, setFront] = useState<'console' | 'terminal'>('terminal');
+  const setPoppedOut = (v: boolean) => {
+    setEditorPoppedOut(v);
+    setFront(v ? 'terminal' : 'console');
+    try {
+      localStorage.setItem(POP_OUT_KEY, v ? '1' : '0');
+    } catch {
+      /* storage unavailable: preference just isn't remembered */
     }
   };
 
-  const activeMission = GARDEN_MISSIONS[activeMissionIdx] ?? GARDEN_MISSIONS[0];
+  // Stop the program when the window closes (unmounts).
+  const stopRef = useRef(stopScript);
+  stopRef.current = stopScript;
+  useEffect(() => () => stopRef.current(), []);
+
+  const missionStars = (id: string) => bestStars[id] ?? 0;
+  const pct = goal.target > 0 ? Math.min(100, Math.round((goal.value / goal.target) * 100)) : 0;
+  const hasGoal = activeMission.goal.kind !== 'none';
+  const tile = grid[drone.y]?.[drone.x];
+  const isLastMission = activeMissionIdx >= missions.length - 1;
 
   return (
-    <div
-      ref={windowRef}
-      style={{
-        position: 'fixed',
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-        width: isMinimized ? '320px' : `${size.width}px`,
-        height: isMinimized ? 'auto' : `${size.height}px`,
-        zIndex: 50,
-      }}
-      className="flex flex-col bg-[#24130b]/95 backdrop-blur-md border-2 sm:border-[3px] border-[#78350f] rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.85)] text-[#fbf7ee] font-sans overflow-hidden select-none transition-shadow duration-150"
-    >
-      {/* 1. ARCHIVAL SADDLE LEATHER WINDOW TITLEBAR (DRAGGABLE) */}
+    <>
       <div
-        onMouseDown={handleDragStart}
-        onTouchStart={handleDragStart}
-        className="garden-window-drag flex items-center justify-between px-3.5 py-2.5 bg-gradient-to-r from-[#2f190e] via-[#3b2012] to-[#2f190e] border-b-2 border-[#5c2b14] cursor-grab active:cursor-grabbing shadow-inner select-none"
+        role="dialog"
+        aria-label="Drone-Bot garden programming console"
+        onMouseDownCapture={() => setFront('console')}
+        onTouchStartCapture={() => setFront('console')}
+        style={{
+          position: 'fixed',
+          left: `${rect.x}px`,
+          top: `${rect.y}px`,
+          width: isMinimized ? `${Math.min(320, window.innerWidth - 16)}px` : `${rect.width}px`,
+          height: isMinimized ? 'auto' : `${rect.height}px`,
+          zIndex: front === 'console' ? 51 : 50,
+        }}
+        className="game-modal-pop flex flex-col bg-[#fffaf0] border-[3px] border-[#2b1d16] rounded-[22px] shadow-[0_6px_0_0_#2b1d16] text-[#2b1d16] font-game overflow-hidden"
       >
-        {/* Title & Status Indicator */}
-        <div className="flex items-center gap-2.5 pointer-events-none">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-emerald-500/50 animate-pulse" />
-          <div className="flex flex-col">
-            <span className="font-serif font-black tracking-wider text-xs sm:text-sm text-[#fef3c7] uppercase flex items-center gap-1.5 drop-shadow-sm truncate">
-              <span>🌾 Drone-Bot 01</span>
-              {!isMinimized && <span className="text-[10px] text-amber-400/80 font-mono font-normal">v3.4</span>}
-            </span>
-            {!isMinimized && (
-              <span className="text-[9px] font-mono text-amber-300/60 uppercase tracking-widest hidden sm:inline">
-                3D Garden Automaton Console
+        {/* 1. TITLEBAR (draggable wooden signboard) */}
+        <div
+          onMouseDown={handleDragStart}
+          onTouchStart={handleDragStart}
+          className="garden-window-drag relative flex items-center justify-between gap-2 px-2.5 py-1.5 bg-[#9a6a43] bg-[repeating-linear-gradient(180deg,rgba(255,255,255,0.07)_0px,rgba(255,255,255,0.07)_2px,transparent_2px,transparent_11px)] border-b-[3px] border-[#2b1d16] cursor-grab active:cursor-grabbing select-none"
+        >
+          <div className="flex items-center gap-2 min-w-0 pointer-events-none">
+            <div className="relative shrink-0 w-9 h-9 rounded-xl bg-[#fffaf0] border-2 border-[#2b1d16] shadow-[0_2px_0_0_#2b1d16] flex items-center justify-center">
+              <DroneIcon className="w-7 h-7" spinning={isRunning} />
+              <span
+                className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-[#2b1d16] ${isRunning ? 'bg-[#5f9a45] animate-pulse' : 'bg-[#fde68a]'}`}
+                aria-hidden
+              />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="font-black tracking-wide text-sm sm:text-base text-[#fffaf0] leading-tight truncate [text-shadow:0_2px_0_#2b1d16]">
+                Drone-Bot 01
               </span>
-            )}
-          </div>
-        </div>
-
-        {/* Window Controls (Minimize & Wax Seal Close) */}
-        <div className="flex items-center gap-1.5 z-10">
-          {/* Quick Play/Stop button when minimized */}
-          {isMinimized && (
-            <button
-              onClick={isRunning ? stopScript : runScript}
-              className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase tracking-wider transition-all ${
-                isRunning
-                  ? 'bg-rose-700 hover:bg-rose-600 text-white animate-pulse'
-                  : 'bg-emerald-700 hover:bg-emerald-600 text-white'
-              }`}
-            >
-              {isRunning ? '⏹ Stop' : '▶ Run'}
-            </button>
-          )}
-
-          {/* Minimize / Maximize Button */}
-          <button
-            onClick={() => setIsMinimized((v) => !v)}
-            title={isMinimized ? 'Expand window' : 'Minimize window'}
-            className="w-7 h-7 rounded-full bg-[#1e0e07] hover:bg-[#3a1d0f] border border-[#78350f] text-amber-300/80 hover:text-amber-200 flex items-center justify-center font-mono text-xs transition-all cursor-pointer"
-          >
-            {isMinimized ? '□' : '–'}
-          </button>
-
-          {/* Crimson Wax Seal Close Button */}
-          <button
-            onClick={onClose}
-            title="Close Automaton Console"
-            className="w-7 h-7 rounded-full bg-gradient-to-br from-rose-600 to-rose-900 hover:from-rose-500 hover:to-rose-800 border border-rose-400 text-white font-serif font-bold text-xs shadow-md hover:scale-105 active:scale-95 flex items-center justify-center transition-all cursor-pointer"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-
-      {/* When minimized, only show compact status ribbon */}
-      {isMinimized ? (
-        <div className="p-2.5 bg-[#1a0e07] text-[11px] font-mono flex items-center justify-between text-amber-200">
-          <span>Score: <strong className="text-amber-400">{score}</strong></span>
-          <span>Pos: <strong className="text-amber-300">({drone.x}, {drone.y}) [{drone.dir}]</strong></span>
-          <button
-            onClick={() => setIsMinimized(false)}
-            className="text-[10px] text-amber-400 underline hover:text-amber-200 cursor-pointer"
-          >
-            Expand ↗
-          </button>
-        </div>
-      ) : (
-        /* EXPANDED FULL CONSOLE INTERIOR */
-        <div className="flex-1 flex flex-col min-h-0 bg-[#1e1009]/95 text-stone-200 overflow-hidden">
-          {/* 2. MISSION TABS BAR */}
-          <div className="flex items-center gap-1 px-2.5 py-1.5 bg-[#180c06] border-b border-[#3d1d0c] overflow-x-auto scrollbar-none text-[11px]">
-            {GARDEN_MISSIONS.map((m, idx) => (
-              <button
-                key={m.id}
-                onClick={() => selectMission(idx)}
-                className={`px-2.5 py-1 rounded-md font-serif font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                  activeMissionIdx === idx
-                    ? 'bg-[#d97706] text-[#24130b] font-bold shadow-xs'
-                    : 'text-amber-200/70 hover:text-amber-100 hover:bg-[#2e170c]'
-                }`}
-              >
-                {m.title}
-              </button>
-            ))}
-          </div>
-
-          {/* 3. ACTIVE MISSION BANNER & LIVE STATS */}
-          <div className="px-3 py-2 bg-gradient-to-b from-[#2a170e] to-[#201109] border-b border-[#451f0f] flex flex-wrap items-center justify-between gap-2 text-xs">
-            {/* Mission Objective */}
-            <div className="flex-1 min-w-[200px]">
-              <div className="flex items-center gap-2">
-                <span className="font-serif font-bold text-amber-300 text-xs">{activeMission.title}</span>
-                <span className="px-1.5 py-0.2 rounded bg-amber-900/60 text-amber-300 font-mono text-[9px] border border-amber-700/50">
-                  {activeMission.badge}
+              {!isMinimized && (
+                <span className="text-[11px] font-bold text-[#fde68a] truncate leading-tight">
+                  Garden console · 🪙 {lifetimeCoins} lifetime
                 </span>
-                {missionCleared && (
-                  <span className="px-1.5 py-0.2 rounded bg-emerald-900/80 text-emerald-300 font-bold text-[9px] border border-emerald-600 animate-bounce">
-                    ✨ COMPLETED!
-                  </span>
-                )}
-              </div>
-              <p className="text-[10px] text-stone-300/80 font-sans mt-0.5 line-clamp-1">
-                {activeMission.desc}
-              </p>
-            </div>
-
-            {/* Farm Score & Inventory Badges */}
-            <div className="flex items-center gap-2 font-mono text-[11px]">
-              <div className="px-2 py-0.5 rounded bg-amber-950/80 border border-amber-700/60 text-amber-300 flex items-center gap-1 shadow-xs">
-                <span>⭐</span>
-                <span>{score} pts</span>
-              </div>
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#150a04] border border-[#4a2614] text-[10px] text-stone-300">
-                <span title="Wheat">🌾 {inventory.wheat}</span>
-                <span title="Carrots">🥕 {inventory.carrot}</span>
-                <span title="Pumpkins">🎃 {inventory.pumpkin}</span>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* 4. DRONE POSITION & SENSOR TELEMETRY */}
-          <div className="px-3 py-1 bg-[#140a04] border-b border-[#2e160a] flex items-center justify-between text-[10px] font-mono text-amber-200/70">
-            <div className="flex items-center gap-2">
-              <span>Drone: <strong className="text-amber-300">({drone.x}, {drone.y})</strong></span>
-              <span>Facing: <strong className="text-amber-300">{drone.dir}</strong></span>
-              <span>Crop: <strong className="text-emerald-300">{grid[drone.y]?.[drone.x]?.crop ?? 'none'}</strong></span>
-              <span>Watered: <strong className={grid[drone.y]?.[drone.x]?.watered ? 'text-sky-300' : 'text-stone-400'}>{grid[drone.y]?.[drone.x]?.watered ? 'YES' : 'NO'}</strong></span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowManualPad((v) => !v)}
-                className="text-amber-400/90 hover:text-amber-200 underline cursor-pointer text-[10px]"
-              >
-                {showManualPad ? 'Hide D-Pad' : 'Manual D-Pad'}
-              </button>
-              <button
-                onClick={() => setShowCheatsheet((v) => !v)}
-                className="text-amber-400/90 hover:text-amber-200 underline cursor-pointer text-[10px]"
-              >
-                {showCheatsheet ? 'Hide Guide' : 'Python API'}
-              </button>
-            </div>
-          </div>
-
-          {/* OPTIONAL MANUAL D-PAD CONTROLLER OVERLAY */}
-          {showManualPad && (
-            <div className="px-3 py-2 bg-[#1b0f08] border-b border-[#3b1c0d] flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-1">
-                <span className="text-[10px] text-stone-400 font-mono mr-1">Drive:</span>
-                <button
-                  onClick={() => manualStep('W')}
-                  className="w-7 h-7 rounded bg-[#2e170c] hover:bg-[#452313] border border-[#5c2b14] text-amber-300 font-bold cursor-pointer"
-                >
-                  ←
-                </button>
-                <div className="flex flex-col gap-1">
-                  <button
-                    onClick={() => manualStep('N')}
-                    className="w-7 h-7 rounded bg-[#2e170c] hover:bg-[#452313] border border-[#5c2b14] text-amber-300 font-bold cursor-pointer"
-                  >
-                    ↑
-                  </button>
-                  <button
-                    onClick={() => manualStep('S')}
-                    className="w-7 h-7 rounded bg-[#2e170c] hover:bg-[#452313] border border-[#5c2b14] text-amber-300 font-bold cursor-pointer"
-                  >
-                    ↓
-                  </button>
-                </div>
-                <button
-                  onClick={() => manualStep('E')}
-                  className="w-7 h-7 rounded bg-[#2e170c] hover:bg-[#452313] border border-[#5c2b14] text-amber-300 font-bold cursor-pointer"
-                >
-                  →
-                </button>
-              </div>
-
-              <div className="flex items-center gap-1">
-                {/* Seed Type Selector */}
-                <div className="flex items-center bg-[#130a04] p-0.5 rounded border border-[#4a2614] mr-1">
-                  {(['wheat', 'carrot', 'pumpkin'] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setSelectedSeed(s)}
-                      className={`px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition ${
-                        selectedSeed === s ? 'bg-[#b45309] text-white font-bold' : 'text-stone-400 hover:text-stone-200'
-                      }`}
-                      title={`Select ${s} seed`}
-                    >
-                      {s === 'wheat' ? '🌾' : s === 'carrot' ? '🥕' : '🎃'}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => manualPlant(selectedSeed)}
-                  className="px-2 py-1 rounded bg-amber-900/60 hover:bg-amber-800 border border-amber-600/50 text-[10px] text-amber-200 font-bold cursor-pointer"
-                >
-                  🌱 Plant
-                </button>
-                <button
-                  onClick={manualWater}
-                  className="px-2 py-1 rounded bg-sky-900/60 hover:bg-sky-800 border border-sky-600/50 text-[10px] text-sky-200 font-bold cursor-pointer"
-                >
-                  💧 Water
-                </button>
-                <button
-                  onClick={manualHarvest}
-                  className="px-2 py-1 rounded bg-emerald-900/60 hover:bg-emerald-800 border border-emerald-600/50 text-[10px] text-emerald-200 font-bold cursor-pointer"
-                >
-                  ✂️ Harvest
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* OPTIONAL QUICK PYTHON CHEATSHEET */}
-          {showCheatsheet && (
-            <div className="p-2.5 bg-[#170c06] border-b border-[#3b1c0d] grid grid-cols-2 gap-1.5 text-[10px] font-mono text-stone-300">
-              <div><code>move(east|west|north|south)</code></div>
-              <div><code>plant("wheat"|"carrot"|"pumpkin")</code></div>
-              <div><code>water()</code> (ripens crops to mature)</div>
-              <div><code>harvest()</code> (collects mature yield)</div>
-              <div><code>can_harvest()</code> -&gt; boolean</div>
-              <div><code>is_empty()</code> -&gt; boolean</div>
-              <div><code>for i in range(5):</code></div>
-              <div><code>while True: ...</code></div>
-            </div>
-          )}
-
-          {/* 5. PYTHON CODE EDITOR (TEXTAREA) */}
-          <div className="flex-1 relative min-h-[140px] bg-[#120904] flex flex-col font-mono text-xs overflow-hidden">
-            <div className="px-3 py-1 bg-[#1a0e07] border-b border-[#2b1409] flex items-center justify-between text-[10px] text-stone-400">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span>program.py</span>
-              </span>
-              <span>Python / Pseudo-Python Sub-interpreter</span>
-            </div>
-
-            <textarea
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              onKeyDown={handleKeyDown}
-              spellCheck={false}
-              className="w-full flex-1 p-3 bg-transparent text-emerald-200 font-mono text-xs leading-relaxed resize-none focus:outline-hidden selection:bg-amber-800/60 scrollbar-thin scrollbar-thumb-[#4a2614] scrollbar-track-transparent"
-              placeholder="# Write Python farming instructions here..."
-            />
-          </div>
-
-          {/* 6. CONSOLE EXECUTION TRACE LOGS */}
-          <div className="h-20 bg-[#0d0603] border-t border-[#2d150a] px-3 py-1.5 overflow-y-auto font-mono text-[10px] flex flex-col-reverse justify-end scrollbar-none">
-            {logs.slice(0, 4).map((line, idx) => (
-              <div
-                key={idx}
-                className={`truncate ${
-                  line.includes('Error') || line.includes('boundary')
-                    ? 'text-rose-400 font-bold'
-                    : line.includes('Harvested') || line.includes('COMPLETED')
-                    ? 'text-amber-300 font-bold'
-                    : line.includes('Watered')
-                    ? 'text-sky-300'
-                    : 'text-stone-400'
-                }`}
-              >
-                {line}
-              </div>
-            ))}
-          </div>
-
-          {/* 7. CONTROLS BAR (EXECUTE, SPEED, RESET) */}
-          <div className="px-3 py-2.5 bg-gradient-to-r from-[#24130b] via-[#2f190e] to-[#24130b] border-t-2 border-[#5c2b14] flex flex-wrap items-center justify-between gap-2">
-            {/* Speed Selector */}
-            <div className="flex items-center gap-1 text-[11px] font-mono">
-              <span className="text-amber-300/80 mr-1 text-[10px]">Speed:</span>
-              {([1, 2, 5] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSpeed(s)}
-                  className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${
-                    speed === s
-                      ? 'bg-amber-600 text-stone-950 shadow-xs'
-                      : 'bg-[#180c06] hover:bg-[#341b0d] text-amber-200/80 border border-[#4a2614]'
-                  }`}
-                >
-                  {s}x
-                </button>
-              ))}
-            </div>
-
-            {/* Run / Stop & Reset Field Buttons */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={resetField}
-                title="Reset farm field to initial state"
-                className="px-2.5 py-1.5 rounded-lg bg-[#1a0e07] hover:bg-[#32190d] border border-[#5c2b14] text-stone-300 hover:text-white font-mono text-xs font-semibold transition-all cursor-pointer"
-              >
-                ↺ Reset
-              </button>
-
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isMinimized && (
               <button
                 onClick={isRunning ? stopScript : runScript}
-                className={`px-4 py-1.5 rounded-xl font-serif font-black text-xs tracking-wide uppercase shadow-lg transition-all transform active:scale-95 cursor-pointer flex items-center gap-1.5 ${
-                  isRunning
-                    ? 'bg-gradient-to-b from-rose-600 to-rose-800 hover:from-rose-500 hover:to-rose-700 text-white animate-pulse border border-rose-400'
-                    : 'bg-gradient-to-b from-emerald-600 to-emerald-800 hover:from-emerald-500 hover:to-emerald-700 text-white border border-emerald-400'
-                }`}
+                aria-label={isRunning ? 'Stop program' : 'Run program'}
+                className={`${smallBtn} px-2 py-0.5 text-[11px] uppercase !text-white ${isRunning ? '!bg-[#c43a4c]' : '!bg-[#5f9a45]'}`}
               >
-                <span>{isRunning ? '⏹ STOP DRONE' : '▶ RUN SCRIPT'}</span>
+                {isRunning ? '⏹ Stop' : '▶ Run'}
               </button>
-            </div>
+            )}
+            <button
+              onClick={() => setIsMinimized((v) => !v)}
+              aria-label={isMinimized ? 'Expand window' : 'Minimise window'}
+              title={isMinimized ? 'Expand window' : 'Minimise window'}
+              className={`${smallBtn} w-8 h-8 !rounded-full text-sm`}
+            >
+              {isMinimized ? '□' : '–'}
+            </button>
+            <button
+              onClick={onClose}
+              aria-label="Close garden console"
+              title="Close garden console"
+              className={`${smallBtn} w-8 h-8 !rounded-full !bg-[#c43a4c] !text-white text-sm`}
+            >
+              ✕
+            </button>
           </div>
         </div>
-      )}
 
-      {/* 8. RESIZE CORNER HANDLE (BOTTOM-RIGHT) */}
-      {!isMinimized && (
-        <div
-          onMouseDown={handleResizeStart}
-          onTouchStart={handleResizeStart}
-          title="Drag to resize window"
-          className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-center justify-center text-amber-500/60 hover:text-amber-300 z-30 select-none"
-        >
-          <svg className="w-3 h-3" viewBox="0 0 10 10" fill="currentColor">
-            <path d="M9 1L1 9M9 5L5 9M9 9L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </div>
+        {isMinimized ? (
+          <div className="px-2.5 py-2 bg-[#f6ecd6] flex items-center justify-between gap-1.5 flex-wrap">
+            <span className={`${statChip} bg-[#fde68a] border-[#2b1d16] text-[#2b1d16]`}>🪙 {coins}</span>
+            <span className={chipNeutral}>⏱ {tick}</span>
+            <span className={chipNeutral}>({drone.x}, {drone.y}) {drone.dir}</span>
+            {hasGoal && <span className={`${statChip} bg-[#c5d77a] border-[#2b1d16] text-[#2b1d16]`}>🎯 {pct}%</span>}
+          </div>
+        ) : (
+          <div className="relative flex-1 flex flex-col min-h-0 bg-[#fffaf0]">
+            <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+              {/* 2. MISSION LIST (chunky pills) */}
+              <div
+                className="flex items-stretch gap-1.5 px-2.5 py-2 bg-[#f6ecd6] border-b-2 border-[#2b1d16]/20 overflow-x-auto text-xs shrink-0"
+                role="tablist"
+                aria-label="Missions"
+              >
+                {missions.map((m, idx) => {
+                  const unlocked = isMissionUnlocked(idx);
+                  const active = idx === activeMissionIdx;
+                  return (
+                    <button
+                      key={m.id}
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => selectMission(idx)}
+                      disabled={!unlocked}
+                      title={unlocked ? m.title : `Locked: clear ${missions[idx - 1]?.title} first`}
+                      className={`shrink-0 px-2.5 py-1 rounded-full border-2 font-black whitespace-nowrap flex flex-col items-center leading-tight transition-transform cursor-pointer disabled:cursor-not-allowed ${focusRing} ${
+                        active
+                          ? 'bg-[#d97706] text-white border-[#2b1d16] shadow-[0_2px_0_0_#2b1d16]'
+                          : unlocked
+                          ? 'bg-[#fffaf0] text-[#5c4033] border-[#2b1d16]/40 hover:border-[#2b1d16] hover:-translate-y-0.5'
+                          : 'bg-[#f6ecd6] text-[#9a8574] border-dashed border-[#2b1d16]/30'
+                      }`}
+                    >
+                      <span>{unlocked ? '' : '🔒 '}{m.title.split(':')[0]}</span>
+                      {m.goal.kind !== 'none' && (
+                        <span
+                          className={`text-[11px] tracking-tight ${active ? 'text-[#fde68a]' : unlocked ? 'text-[#d97706]' : 'text-[#c9b8a3]'}`}
+                          aria-label={`${missionStars(m.id)} of 3 stars`}
+                        >
+                          {stars(missionStars(m.id))}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 3. MISSION BRIEF, GOAL & STATS */}
+              <div className="px-3 py-2.5 border-b-2 border-[#2b1d16]/15 text-xs space-y-2 shrink-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`${tw.heading} text-base leading-tight`}>{activeMission.title}</span>
+                  <span className={`${tw.chip} bg-[#fde68a] text-[#92400e]`}>{activeMission.badge}</span>
+                </div>
+                <p className="text-xs text-[#4a3426] leading-snug">{activeMission.desc}</p>
+
+                {hasGoal && (
+                  <div>
+                    <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-[#5c4033] mb-1">
+                      <span>🎯 {goalText(activeMission)}</span>
+                      <span className="tabular-nums">{goal.value}/{goal.target}</span>
+                    </div>
+                    <div
+                      className="h-3 rounded-full bg-[#f6ecd6] border-2 border-[#2b1d16] overflow-hidden"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={goal.target}
+                      aria-valuenow={goal.value}
+                      aria-label="Goal progress"
+                    >
+                      <div
+                        className="h-full bg-[#5f9a45] border-r-2 border-[#2b1d16] bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.18)_0px,rgba(255,255,255,0.18)_6px,transparent_6px,transparent_12px)] transition-all duration-300"
+                        style={{ width: `${pct}%`, borderRightWidth: pct > 0 && pct < 100 ? undefined : 0 }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className={`${statChip} bg-[#fde68a] border-[#2b1d16] text-[#2b1d16]`} title="Coins">🪙 {coins}</span>
+                  <span
+                    className={`${statChip} ${
+                      hasGoal && tick > activeMission.par.ticks
+                        ? 'bg-[#fde8ea] border-[#c43a4c] text-[#9b2335]'
+                        : 'bg-[#dbeff8] border-[#2b6f8f]/70 text-[#1f4f66]'
+                    }`}
+                    title="Ticks elapsed (every action costs 1 tick)"
+                  >
+                    ⏱ {tick}{hasGoal ? ` / par ${activeMission.par.ticks}` : ''}
+                  </span>
+                  <span className={`${statChip} bg-[#eef3d6] border-[#355f25]/60 text-[#355f25]`} title="Actions used this run">
+                    🔋 {actionsUsed}/{maxActions}
+                  </span>
+                  <span className={`${chipNeutral} gap-1.5`} aria-label="Inventory">
+                    {CROP_TYPES.map((c) => (
+                      <span key={c} title={CROPS[c].label}>{CROPS[c].emoji}{inventory[c]}</span>
+                    ))}
+                  </span>
+                  <span className={chipNeutral} title="Drone position, heading and tile">
+                    ({drone.x},{drone.y}) {drone.dir} · {tile?.crop === 'none' ? 'empty' : `${tile?.crop} ${Math.round((tile?.growth ?? 0) * 100)}%`}{tile?.watered ? ' 💧' : ''}
+                  </span>
+                </div>
+
+                {/* Hints & panels */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                  <button
+                    onClick={revealHint}
+                    disabled={hintsShown >= activeMission.hints.length}
+                    className={`${smallBtn} px-2 py-1 text-[11px] !bg-[#fde68a]`}
+                  >
+                    💡 {hintsShown >= activeMission.hints.length ? 'All hints shown' : `Hint ${hintsShown + 1}/${activeMission.hints.length}`}
+                  </button>
+                  <button onClick={() => setShowApi((v) => !v)} aria-expanded={showApi} className={`${smallBtn} px-2 py-1 text-[11px]`}>
+                    📖 API {showApi ? '▴' : '▾'}
+                  </button>
+                  <button onClick={() => setShowManual((v) => !v)} aria-expanded={showManual} className={`${smallBtn} px-2 py-1 text-[11px]`}>
+                    🎮 Seeds & manual {showManual ? '▴' : '▾'}
+                  </button>
+                  <button onClick={resetCode} disabled={isRunning} className={`${smallBtn} px-2 py-1 text-[11px]`} title="Replace your code with the mission template">
+                    📄 Reset code
+                  </button>
+                </div>
+                {hintsShown > 0 && (
+                  <ol className="space-y-1.5 text-xs">
+                    {activeMission.hints.slice(0, hintsShown).map((h, i) => (
+                      <li key={i} className="rounded-xl border-2 border-[#d97706]/60 bg-[#fff6dc] px-2.5 py-1.5">
+                        <span className="text-[#92400e] font-black mr-1">Hint {i + 1}{i === activeMission.hints.length - 1 ? ' (solution)' : ''}:</span>
+                        {h.includes('\n') ? (
+                          <pre className="mt-1 rounded-lg bg-[#2f3a33] border-2 border-[#2b1d16] px-2 py-1.5 font-mono text-[11px] text-[#e6efd8] whitespace-pre overflow-x-auto">{h}</pre>
+                        ) : (
+                          <span className="text-[#4a3426]">{h}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+
+              {/* 4. API REFERENCE */}
+              {showApi && (
+                <div className="px-3 py-2.5 bg-[#f6ecd6] border-b-2 border-[#2b1d16]/15 text-[11px] shrink-0">
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5">
+                    {API_REFERENCE.map(([sig, desc]) => (
+                      <div key={sig}>
+                        <dt className="font-mono font-bold text-[#355f25]">{sig}</dt>
+                        <dd className="text-[#5c4033]">{desc}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )}
+
+              {/* 5. SEEDS & MANUAL CONTROLS */}
+              {showManual && (
+                <div className="px-3 py-2.5 bg-[#f6ecd6] border-b-2 border-[#2b1d16]/15 text-xs space-y-2 shrink-0">
+                  <div className="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Seed picker">
+                    {CROP_TYPES.map((c) => {
+                      const info = CROPS[c];
+                      const locked = lockedCrops.includes(c);
+                      return (
+                        <button
+                          key={c}
+                          role="radio"
+                          aria-checked={selectedSeed === c}
+                          disabled={locked}
+                          onClick={() => setSelectedSeed(c as CropType)}
+                          title={locked ? `Clear mission ${info.unlockedBy?.toUpperCase()} to unlock` : `Select ${info.label}`}
+                          className={`text-left px-2 py-1.5 rounded-xl border-2 text-[11px] leading-tight cursor-pointer disabled:cursor-not-allowed transition-transform ${focusRing} ${
+                            locked
+                              ? 'border-dashed border-[#2b1d16]/25 bg-[#f6ecd6] text-[#9a8574] grayscale'
+                              : selectedSeed === c
+                              ? 'border-[#2b1d16] bg-[#fde68a] text-[#2b1d16] shadow-[0_2px_0_0_#2b1d16]'
+                              : 'border-[#2b1d16]/30 bg-[#fffaf0] text-[#4a3426] hover:border-[#2b1d16] hover:-translate-y-0.5'
+                          }`}
+                        >
+                          <div className="font-black text-xs">{info.emoji} {info.label}</div>
+                          {locked ? (
+                            <div>🔒 Clear {info.unlockedBy?.toUpperCase()} to unlock</div>
+                          ) : (
+                            <div>
+                              cost {info.seedCost} · sells {info.sellPrice} · {info.growTicks}t ({Math.ceil(info.growTicks / 2)}t wet)
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="grid grid-cols-3 gap-1" aria-label="Manual drive">
+                      <span />
+                      <button onClick={() => manualStep('N')} disabled={isRunning} aria-label="Move north" className={`${smallBtn} w-8 h-8 text-sm`}>↑</button>
+                      <span />
+                      <button onClick={() => manualStep('W')} disabled={isRunning} aria-label="Move west" className={`${smallBtn} w-8 h-8 text-sm`}>←</button>
+                      <button onClick={() => manualStep('S')} disabled={isRunning} aria-label="Move south" className={`${smallBtn} w-8 h-8 text-sm`}>↓</button>
+                      <button onClick={() => manualStep('E')} disabled={isRunning} aria-label="Move east" className={`${smallBtn} w-8 h-8 text-sm`}>→</button>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button onClick={() => manualPlant(selectedSeed)} disabled={isRunning} className={`${smallBtn} px-2 py-1 text-[11px] !bg-[#c5d77a]`}>
+                        🌱 Plant {CROPS[selectedSeed].emoji}
+                      </button>
+                      <button onClick={manualWater} disabled={isRunning} className={`${smallBtn} px-2 py-1 text-[11px] !bg-[#bfe3f2]`}>💧 Water</button>
+                      <button onClick={manualHarvest} disabled={isRunning} className={`${smallBtn} px-2 py-1 text-[11px] !bg-[#fde68a]`}>✂️ Harvest</button>
+                      <button onClick={manualWait} disabled={isRunning} className={`${smallBtn} px-2 py-1 text-[11px]`}>⏳ Wait</button>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-[#6b4730]">Manual moves are practice only: Run always restarts from the mission start.</p>
+                </div>
+              )}
+
+              {/* 6. CODE EDITOR + LOG (or a pointer to the popped-out terminal window) */}
+              {editorPoppedOut ? (
+                <div className="mx-2.5 my-3 rounded-2xl border-2 border-dashed border-[#2b1d16]/50 bg-[#f6ecd6] px-3 py-4 text-center shrink-0">
+                  <div className="text-2xl" aria-hidden>🖥️</div>
+                  <p className="mt-1 text-sm font-black">Your code is open in the Drone terminal</p>
+                  <p className="text-xs text-[#6b4730]">Drag it anywhere and resize it from its corner. Run from either window.</p>
+                  <button onClick={() => setPoppedOut(false)} className={`${tw.btn} ${tw.btnPaper} !text-xs mt-2.5`}>
+                    ⇲ Bring editor back here
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <CodeEditor
+                    headerAction={
+                      <button
+                        onClick={() => setPoppedOut(true)}
+                        aria-label="Open the code editor in its own window"
+                        title="Open in its own window"
+                        className={`shrink-0 px-1.5 py-0.5 rounded-md border border-[#1c241f] bg-[#3a463e] text-[#e6efd8] font-bold hover:bg-[#46554b] cursor-pointer ${focusRing}`}
+                      >
+                        ⧉ Pop out
+                      </button>
+                    }
+                  />
+                  <LogPanel />
+                </>
+              )}
+            </div>
+
+            {/* 9. CONTROLS BAR */}
+            <div className="px-3 py-2 bg-[#f6ecd6] border-t-[3px] border-[#2b1d16] flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-1 text-[11px]" role="group" aria-label="Playback speed">
+                <span className="font-black uppercase tracking-wider text-[#9a6a43] mr-0.5">Speed</span>
+                {([1, 2, 5, 10] as Speed[]).map((s) => {
+                  const ok = availableSpeeds.includes(s);
+                  return (
+                    <button
+                      key={s}
+                      onClick={() => setSpeed(s)}
+                      disabled={!ok}
+                      aria-pressed={speed === s}
+                      title={ok ? `${s}x speed` : 'Clear M4 to unlock 10x'}
+                      className={`px-2 py-0.5 rounded-full border-2 font-black transition-transform cursor-pointer disabled:cursor-not-allowed ${focusRing} ${
+                        speed === s
+                          ? 'bg-[#d97706] text-white border-[#2b1d16] shadow-[0_2px_0_0_#2b1d16]'
+                          : ok
+                          ? 'bg-[#fffaf0] text-[#5c4033] border-[#2b1d16]/40 hover:border-[#2b1d16] hover:-translate-y-0.5'
+                          : 'bg-[#f6ecd6] text-[#9a8574] border-dashed border-[#2b1d16]/30'
+                      }`}
+                    >
+                      {ok ? `${s}x` : `🔒${s}x`}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={resetField}
+                  aria-label="Reset field to mission start"
+                  title="Reset field to mission start"
+                  className={`${tw.btn} ${tw.btnPaper} !px-3 !py-1.5`}
+                >
+                  ↺ Reset
+                </button>
+                <button
+                  onClick={isRunning ? stopScript : runScript}
+                  className={`${tw.btn} !px-5 !py-1.5 uppercase tracking-wide text-white ${isRunning ? 'bg-[#c43a4c]' : tw.btnGreen}`}
+                >
+                  {isRunning ? '⏹ Stop' : '▶ Run'}
+                </button>
+              </div>
+            </div>
+
+            {/* 10. MISSION COMPLETE CARD */}
+            {completion && (
+              <div className="game-fade-in absolute inset-0 z-20 flex items-center justify-center bg-[#2b1d16]/45 p-4">
+                <div role="dialog" aria-label="Mission complete" className={`game-modal-pop relative w-full max-w-xs ${tw.card} p-4 pt-5 text-center`}>
+                  <div aria-hidden className="absolute -top-5 inset-x-0 flex justify-center"><span className="game-float text-3xl">🎉</span></div>
+                  <p className={tw.label}>Mission complete!</p>
+                  <div className={`${tw.heading} text-lg leading-tight mt-0.5`}>{missions[completion.missionIdx]?.title}</div>
+                  <div className="mt-2 flex justify-center gap-1" aria-label={`${completion.stars} of 3 stars`} role="img">
+                    {[0, 1, 2].map((i) => (
+                      <span
+                        key={i}
+                        aria-hidden
+                        className={`text-5xl leading-none ${i === 1 ? '-translate-y-1.5' : ''} ${
+                          i < completion.stars
+                            ? 'text-[#f5b301] [text-shadow:0_3px_0_#2b1d16,2px_0_0_#2b1d16,-2px_0_0_#2b1d16,0_-2px_0_#2b1d16]'
+                            : 'text-[#e8dcc4] [text-shadow:0_3px_0_rgba(43,29,22,0.35)]'
+                        }`}
+                      >
+                        ★
+                      </span>
+                    ))}
+                  </div>
+                  {completion.newBest && (
+                    <div className={`${tw.chip} mt-2 bg-[#c5d77a] text-[#355f25] border-[#355f25]`}>✨ New best!</div>
+                  )}
+                  <div className="mt-3 grid grid-cols-2 gap-1.5 text-xs font-bold text-[#2b1d16]">
+                    <div className="rounded-xl bg-[#f6ecd6] border-2 border-[#2b1d16]/30 py-1.5">
+                      ⏱ {completion.ticks} ticks
+                      <div className="text-[11px] font-semibold text-[#6b4730]">par {missions[completion.missionIdx]?.par.ticks}</div>
+                    </div>
+                    <div className="rounded-xl bg-[#f6ecd6] border-2 border-[#2b1d16]/30 py-1.5">
+                      📝 {completion.lines} lines
+                      <div className="text-[11px] font-semibold text-[#6b4730]">par {missions[completion.missionIdx]?.par.lines}</div>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[11px] text-[#6b4730] leading-snug">
+                    ★ goal met · ★★ within par ticks · ★★★ also within par lines
+                  </p>
+                  {completion.reward && (
+                    <div className="mt-2 rounded-xl border-2 border-dashed border-[#d97706] bg-[#fff6dc] px-2 py-1 text-xs text-[#92400e] font-black">
+                      🎁 {completion.reward}
+                    </div>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2 justify-center">
+                    <button onClick={dismissCompletion} className={`${tw.btn} ${tw.btnPaper} !text-xs`}>
+                      Keep tinkering
+                    </button>
+                    {!isLastMission && (
+                      <button onClick={nextMission} className={`${tw.btn} ${tw.btnGreen} !text-xs`}>
+                        Next mission →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* RESIZE HANDLE */}
+        {!isMinimized && <ResizeGrip onResizeStart={handleResizeStart} />}
+      </div>
+
+      {editorPoppedOut && (
+        <CodeTerminalWindow onDock={() => setPoppedOut(false)} zIndex={front === 'terminal' ? 51 : 50} onFocus={() => setFront('terminal')} />
       )}
-    </div>
+    </>
   );
 };

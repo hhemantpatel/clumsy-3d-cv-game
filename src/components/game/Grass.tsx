@@ -1,115 +1,140 @@
-import React, { useRef, useMemo, useLayoutEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import { makeRng } from './env/GeoBuilder';
+import { GLSL_MEADOW, GLSL_NOISE, envUniforms, meadowUniforms } from './env/materials';
+import { PALETTE } from './env/palette';
+import { FENCE, isBlocked } from './env/layout';
 
+/**
+ * ~20k instanced, wind-swept grass blades in a single draw call.
+ * - Tapered, slightly curved blade geometry (9 verts).
+ * - Root colour sampled from the same world-space meadow field as the ground plane, so the lawn
+ *   blends seamlessly; tips fade to a sunlit yellow-green.
+ * - Wind sway + travelling gusts in the vertex shader (shared uTime uniform, no CPU work per frame).
+ * - Lambert lighting with up-facing normals (no dark back faces), receives shadows, fog included.
+ * - Excludes house, porch, path, planter, benches, mailbox, trees and shrubs (env/layout.ts).
+ */
 export const Grass: React.FC = () => {
-  const meshRef = useRef<THREE.InstancedMesh>(null);
-  const count = 450;
+  const mesh = useMemo(() => buildGrass(), []);
+  useEffect(() => () => {
+    mesh.geometry.dispose();
+    (mesh.material as THREE.Material).dispose();
+    mesh.dispose();
+  }, [mesh]);
+  return <primitive object={mesh} />;
+};
 
-  // Generate randomized positions within yard lawn boundaries
-  const grassInstances = useMemo(() => {
-    const list: { pos: [number, number, number]; rotY: number; scale: number }[] = [];
-    let seed = 42;
-    const rand = () => {
-      seed = (seed * 16807) % 2147483647;
-      return (seed - 1) / 2147483646;
-    };
+/** Unit blade: height 1, base width 1 (scaled per instance), gentle forward curve. */
+function createBladeGeometry(): THREE.BufferGeometry {
+  const levels = [0, 0.3, 0.58, 0.82];
+  const pos: number[] = [];
+  const nrm: number[] = [];
+  for (const h of levels) {
+    const w = 0.5 * (1 - Math.pow(h, 1.4) * 0.85);
+    const bend = h * h * 0.28;
+    pos.push(-w, h, bend, w, h, bend);
+    nrm.push(0, 1, 0, 0, 1, 0);
+  }
+  pos.push(0, 1, 0.28); // tip
+  nrm.push(0, 1, 0);
+  const idx: number[] = [];
+  for (let i = 0; i < levels.length - 1; i++) {
+    const a = i * 2;
+    idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+  }
+  const last = (levels.length - 1) * 2;
+  idx.push(last, last + 1, last + 2);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setIndex(idx);
+  return g;
+}
 
-    for (let i = 0; i < count; i++) {
-      const x = rand() * 24 - 12;
-      const z = rand() * 24 - 12;
+function createGrassMaterial(): THREE.MeshLambertMaterial {
+  const mat = new THREE.MeshLambertMaterial({ side: THREE.DoubleSide });
+  const uniforms = {
+    ...meadowUniforms(),
+    uTip: { value: new THREE.Color(PALETTE.bladeTip) },
+    uBase: { value: new THREE.Color(PALETTE.bladeBase) },
+  };
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.uniforms.uTime = envUniforms.uTime;
+    shader.vertexShader =
+      'uniform float uTime;\nuniform vec3 uTip;\nuniform vec3 uBase;\nvarying vec3 vGrassColor;\n' +
+      GLSL_NOISE + GLSL_MEADOW +
+      shader.vertexShader.replace(
+        '#include <project_vertex>',
+        /* glsl */ `
+        vec4 mvPosition = instanceMatrix * vec4( transformed, 1.0 );
+        vec2 root = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+        float h = clamp(position.y, 0.0, 1.0);
+        // Wind: steady sway + slow travelling gusts sweeping across the lawn
+        float gust = envNoise(root * 0.12 + vec2(uTime * 0.45, uTime * 0.18));
+        float sway = sin(uTime * 2.1 + root.x * 0.7 + root.y * 0.45) * 0.3 + (gust - 0.35) * 1.3;
+        float bladeH = length(instanceMatrix[1].xyz);
+        float bend = h * h * sway * 0.16 * (0.6 + bladeH * 1.6);
+        mvPosition.x += bend;
+        mvPosition.z += bend * 0.45;
+        mvPosition.y -= abs(bend) * 0.35 * h;
+        // Colour: meadow root -> sunlit tip, with patchy variation and gust highlights
+        vec3 meadow = meadowColor(root);
+        vec3 baseC = mix(uBase, meadow, 0.55) * 0.82;
+        vec3 tipC = mix(meadow * 1.25, uTip, 0.45 + envNoise(root * 0.6) * 0.3);
+        vGrassColor = mix(baseC, tipC, smoothstep(0.0, 1.0, h));
+        vGrassColor *= 1.0 + gust * 0.12 * h;
+        mvPosition = modelViewMatrix * mvPosition;
+        gl_Position = projectionMatrix * mvPosition;
+        `,
+      );
+    shader.fragmentShader = 'varying vec3 vGrassColor;\n' + shader.fragmentShader
+      .replace('vec4 diffuseColor = vec4( diffuse, opacity );', 'vec4 diffuseColor = vec4( vGrassColor, opacity );')
+      // Keep the up-facing normal on back faces too (blades light like the lawn, never go black)
+      .replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\nnormal = normalize( vNormal );');
+  };
+  mat.customProgramCacheKey = () => 'env-grass-v1';
+  return mat;
+}
 
-      // Avoid house interior (-6.5 to 6.5, -10.5 to -1.5)
-      if (x > -6.8 && x < 6.8 && z > -11.0 && z < -1.0) continue;
-      // Avoid stepping stones path (center line from z: -1 to 12)
-      if (Math.abs(x) < 1.0 && z > -1.0 && z < 12.0) continue;
-      // Avoid badminton court (x: 4.5 to 9.2, z: 1.2 to 9.0)
-      if (x > 4.4 && x < 9.3 && z > 1.2 && z < 9.2) continue;
-      // Avoid bench area (x: -8.8 to -6.0, z: 3.5 to 5.5)
-      if (x > -9.0 && x < -5.8 && z > 3.2 && z < 5.8) continue;
+function buildGrass(): THREE.InstancedMesh {
+  const rng = makeRng(42);
+  const cell = 0.155;
+  const span = FENCE - 0.25;
+  const cells = Math.floor((span * 2) / cell);
+  const matrices: THREE.Matrix4[] = [];
+  const dummy = new THREE.Object3D();
 
-      const scale = 0.5 + rand() * 0.45;
-      const rotY = rand() * Math.PI * 2;
-      list.push({ pos: [x, 0.01, z], rotY, scale });
-    }
-    return list;
-  }, []);
-
-  // Initialize all instance matrices ONCE at mount (0 CPU frame overhead)
-  useLayoutEffect(() => {
-    if (!meshRef.current) return;
-    const dummy = new THREE.Object3D();
-
-    for (let i = 0; i < grassInstances.length; i++) {
-      const g = grassInstances[i];
-      dummy.position.set(g.pos[0], g.pos[1], g.pos[2]);
-      dummy.rotation.set(0.04 * Math.sin(g.rotY), g.rotY, 0.04 * Math.cos(g.rotY));
-      dummy.scale.set(g.scale, g.scale, g.scale);
+  for (let ix = 0; ix < cells; ix++) {
+    for (let iz = 0; iz < cells; iz++) {
+      const x = -span + (ix + rng()) * cell;
+      const z = -span + (iz + rng()) * cell;
+      if (isBlocked(x, z)) {
+        rng();
+        rng();
+        rng();
+        continue;
+      }
+      // Taller, shaggier grass toward the fence and around trees; shorter near the path edges
+      const edge = Math.max(Math.abs(x), Math.abs(z));
+      const shaggy = 1 + 0.55 * THREE.MathUtils.smoothstep(edge, 10.2, 12.2);
+      const nearZone = isBlocked(x, z, 0.35) ? 0.72 : 1;
+      const height = (0.2 + rng() * 0.2) * shaggy * nearZone;
+      const width = 0.06 + rng() * 0.035;
+      dummy.position.set(x, 0, z);
+      dummy.rotation.set((rng() - 0.5) * 0.3, rng() * Math.PI * 2, (rng() - 0.5) * 0.3);
+      dummy.scale.set(width, height, height);
       dummy.updateMatrix();
-      meshRef.current.setMatrixAt(i, dummy.matrix);
+      matrices.push(dummy.matrix.clone());
     }
-    meshRef.current.instanceMatrix.needsUpdate = true;
-  }, [grassInstances]);
+  }
 
-  return (
-    <group position={[0, 0, 0]}>
-      {/* 3D Instanced Grass Blade Tufts (receiveShadow only, no shadow-map rasterization) */}
-      <instancedMesh
-        ref={meshRef}
-        args={[undefined, undefined, grassInstances.length]}
-        receiveShadow
-      >
-        <coneGeometry args={[0.08, 0.45, 3]} />
-        <meshStandardMaterial
-          color="#16a34a"
-          roughness={1.0}
-          metalness={0.0}
-        />
-      </instancedMesh>
-
-      {/* Scattered Lawn Daisies & Wildflowers */}
-      <Wildflowers />
-    </group>
-  );
-};
-
-// Reusable scattered lawn wildflowers
-const Wildflowers: React.FC = () => {
-  const flowerSpots: [number, number, string][] = [
-    [-3.8, 1.2, '#fef08a'],
-    [-5.2, 2.8, '#ffffff'],
-    [-4.5, 6.5, '#f472b6'],
-    [-2.2, 7.8, '#ffffff'],
-    [2.8, 2.2, '#fef08a'],
-    [3.6, 9.8, '#ffffff'],
-    [-8.2, 8.5, '#a78bfa'],
-    [-10.2, 1.5, '#f472b6'],
-    [10.5, 8.5, '#fef08a'],
-    [10.8, -4.5, '#ffffff'],
-    [-9.5, -7.5, '#ffffff'],
-    [8.8, -9.2, '#fef08a'],
-  ];
-
-  return (
-    <group position={[0, 0.02, 0]}>
-      {flowerSpots.map(([fx, fz, color], idx) => (
-        <group key={idx} position={[fx, 0, fz]}>
-          {/* Stem */}
-          <mesh position={[0, 0.1, 0]}>
-            <cylinderGeometry args={[0.015, 0.015, 0.2, 6]} />
-            <meshStandardMaterial color="#16a34a" />
-          </mesh>
-          {/* Flower Head */}
-          <mesh position={[0, 0.21, 0]}>
-            <sphereGeometry args={[0.045, 8, 8]} />
-            <meshStandardMaterial color={color} roughness={0.4} />
-          </mesh>
-          {/* Petal Ring */}
-          <mesh position={[0, 0.2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-            <torusGeometry args={[0.055, 0.018, 6, 12]} />
-            <meshStandardMaterial color={color} roughness={0.4} />
-          </mesh>
-        </group>
-      ))}
-    </group>
-  );
-};
+  const mesh = new THREE.InstancedMesh(createBladeGeometry(), createGrassMaterial(), matrices.length);
+  for (let i = 0; i < matrices.length; i++) mesh.setMatrixAt(i, matrices[i]);
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.receiveShadow = true;
+  mesh.castShadow = false;
+  mesh.computeBoundingSphere();
+  mesh.name = 'grass';
+  return mesh;
+}

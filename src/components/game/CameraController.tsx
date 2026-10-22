@@ -148,13 +148,16 @@ export const CameraController: React.FC<CameraControllerProps> = ({ engine }) =>
         state.targetPos.lerp(gardenTarget, delta * 6.0);
       }
 
-      if (!state.isDragging) {
+      const idealGardenTheta = -Math.PI * 0.68 + state.userYawOffset;
+      let diff = idealGardenTheta - state.theta;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+
+      if (state.isDragging) {
+        state.theta += diff;
+      } else {
         state.targetPhi = THREE.MathUtils.lerp(state.targetPhi, Math.PI / 3.2, delta * 5.0);
         state.targetRadius = THREE.MathUtils.lerp(state.targetRadius, 6.5, delta * 5.0);
-        const idealGardenTheta = -Math.PI * 0.68;
-        let diff = idealGardenTheta - state.theta;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        while (diff > Math.PI) diff -= Math.PI * 2;
         state.theta += diff * Math.min(delta * 4.0, 1.0);
       }
     } else {
@@ -193,8 +196,10 @@ export const CameraController: React.FC<CameraControllerProps> = ({ engine }) =>
       while (diff < -Math.PI) diff += Math.PI * 2;
       while (diff > Math.PI) diff -= Math.PI * 2;
 
-      // Camera smoothly and gracefully turns with the player as they turn
-      if (!state.isDragging) {
+      // Camera smoothly turns: immediate 1:1 response during manual drag, smooth follow when moving
+      if (state.isDragging) {
+        state.theta += diff;
+      } else {
         const turnFollowSpeed = isWalking ? 3.8 : 2.6;
         state.theta += diff * Math.min(delta * turnFollowSpeed, 1.0);
       }
