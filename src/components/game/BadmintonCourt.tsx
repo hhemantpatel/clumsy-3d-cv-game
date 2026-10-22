@@ -6,13 +6,17 @@ import { FieldCrops } from './garden/FieldCrops';
 import { GardenDrone } from './garden/GardenDrone';
 import { Planter } from './garden/Planter';
 import { ZonePrompt } from './props/ZonePrompt';
+import { PhysicsEngine } from '../../wasm/pkg/game_engine_wasm';
+
+interface BadmintonCourtProps {
+  engine?: PhysicsEngine | null;
+}
 
 /**
  * Automaton Garden — raised planter with a 5x5 field tended by a farming drone.
- * (Named BadmintonCourt for historical reasons; the zone id is still 'badminton'.)
- * Garden group sits at world [6.8, 0, 5.2]; tile (x, y) -> local (COLS[x], ROWS[y]).
+ * Interaction prompt only appears when player approaches AND looks directly at the planter.
  */
-export const BadmintonCourt: React.FC = () => {
+export const BadmintonCourt: React.FC<BadmintonCourtProps> = ({ engine }) => {
   // Sim-only slice: { grid, drone, isRunning } typed by src/garden/types.ts
   const { grid, drone, isRunning } = useGardenSim();
 
@@ -43,9 +47,10 @@ export const BadmintonCourt: React.FC = () => {
       <ZonePrompt
         zone="badminton"
         icon="🌱"
-        label="Automaton Garden • Code & Farm Game"
-        position={[0, 2.1, 0]}
-        groundRadius={1.6}
+        label="Automaton Garden"
+        position={[0, 1.9, 0]}
+        engine={engine}
+        groundRadius={1.5}
         groundY={0.02}
       />
     </group>

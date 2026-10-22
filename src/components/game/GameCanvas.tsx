@@ -108,7 +108,7 @@ export const GameCanvas: React.FC = () => {
         <Suspense fallback={null}>
           <Yard engine={engine} />
           <House engine={engine} />
-          <Interactables />
+          <Interactables engine={engine} />
           <Particles engine={engine} />
           <Butterflies />
           <Character engine={engine} />

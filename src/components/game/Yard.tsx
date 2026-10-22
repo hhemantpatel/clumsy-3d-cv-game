@@ -161,7 +161,7 @@ export const Yard: React.FC<YardProps> = ({ engine }) => {
       ))}
 
       <Grass />
-      <BadmintonCourt />
+      <BadmintonCourt engine={engine} />
       <Fireflies />
     </group>
   );

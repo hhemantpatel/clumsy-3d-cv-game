@@ -6,21 +6,30 @@ import { Bookcase } from './props/Bookcase';
 import { Certificates } from './props/Certificates';
 import { Bed } from './props/Bed';
 import { Mailbox, Bench } from './props/YardProps';
+import { PhysicsEngine } from '../../wasm/pkg/game_engine_wasm';
+
+interface InteractablesProps {
+  engine?: PhysicsEngine | null;
+}
 
 /**
- * CV interaction props. Group origins match the Rust engine's colliders / trigger zones
- * (crates/game_engine_wasm/src/lib.rs) — keep them in sync if anything moves.
- *
- * No point lights live here: screens, lamps and crystals are emissive (toneMapped=false) and are
- * picked up by the Bloom pass. The house provides the only two interior point lights.
+ * CV interaction props. Group origins match the Rust engine's colliders / trigger zones.
+ * Signs only appear when the player is nearby AND looking directly toward the prop.
  */
-export const Interactables: React.FC = () => {
+export const Interactables: React.FC<InteractablesProps> = ({ engine }) => {
   return (
     <group>
       {/* Projects desk — collider x -5.4..-3.0, z -9.4..-7.6 */}
       <group position={[-4.2, FLOOR_Y, -8.5]}>
         <Desk />
-        <ZonePrompt zone="projects" icon="💻" label="View Projects" position={[0, 2.4, 0]} groundRadius={1.1} />
+        <ZonePrompt
+          zone="projects"
+          icon="💻"
+          label="Projects"
+          position={[0, 2.2, 0]}
+          engine={engine}
+          groundRadius={1.1}
+        />
       </group>
 
       {/* Skills bookcase — collider x -6.2..-5.0, z -5.6..-3.4 (back against the left wall) */}
@@ -29,8 +38,9 @@ export const Interactables: React.FC = () => {
         <ZonePrompt
           zone="skills"
           icon="⚡"
-          label="Skill Proficiencies"
-          position={[0.6, 3.4, 0]}
+          label="Skills"
+          position={[0.6, 3.2, 0]}
+          engine={engine}
           groundRadius={1.0}
           groundOffset={[0.6, 0, 0]}
         />
@@ -42,8 +52,9 @@ export const Interactables: React.FC = () => {
         <ZonePrompt
           zone="experience"
           icon="🏆"
-          label="Quest Timeline"
-          position={[0, 3.0, 0.2]}
+          label="Experience"
+          position={[0, 2.8, 0.2]}
+          engine={engine}
           groundRadius={1.1}
           groundOffset={[0, 0, 0.4]}
         />
@@ -55,8 +66,9 @@ export const Interactables: React.FC = () => {
         <ZonePrompt
           zone="bed"
           icon="🐱"
-          label="Pet Byte The Cat"
-          position={[0, 2.0, 0.6]}
+          label="Pet Byte"
+          position={[0, 1.9, 0.6]}
+          engine={engine}
           groundRadius={1.1}
           groundOffset={[0, 0, 0.6]}
         />
@@ -65,13 +77,27 @@ export const Interactables: React.FC = () => {
       {/* Mailbox — collider x 1.2..2.0, z 10.4..11.2 */}
       <group position={[1.6, 0, 10.8]}>
         <Mailbox />
-        <ZonePrompt zone="contact" icon="📫" label="Post Office & Mail" position={[0, 2.2, 0]} groundRadius={0.9} />
+        <ZonePrompt
+          zone="contact"
+          icon="📫"
+          label="Post & Mail"
+          position={[0, 2.0, 0]}
+          engine={engine}
+          groundRadius={0.9}
+        />
       </group>
 
       {/* Garden bench — collider x -8.8..-6.2, z 3.8..5.2 */}
       <group position={[-7.5, 0, 4.5]} rotation={[0, Math.PI / 4, 0]}>
         <Bench />
-        <ZonePrompt zone="about" icon="☕" label="About Me & Log" position={[0, 1.8, 0]} groundRadius={1.0} />
+        <ZonePrompt
+          zone="about"
+          icon="☕"
+          label="About Me"
+          position={[0, 1.7, 0]}
+          engine={engine}
+          groundRadius={1.0}
+        />
       </group>
     </group>
   );
