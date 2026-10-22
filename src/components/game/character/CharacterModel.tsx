@@ -6,14 +6,15 @@ import * as THREE from 'three';
 import { Outlines } from '@react-three/drei';
 import { CharacterRig } from './rig';
 import { getCharacterGeometries } from './geometries';
-import { getCharacterMaterials, OUTLINE_COLOR, OUTLINE_THICKNESS } from './materials';
+import { getCharacterMaterials, OUTLINE_COLOR, OUTLINE_THICKNESS, CURRENT_CHARACTER_STYLE } from './materials';
 import { BODY_PIVOT_Y, BROW_Y, EYE_SCALE, EYE_X, EYE_Y, MOUTH_Y, POM_BASE, SHADOW_LIFT } from './constants';
 
-// Note: in drei 9.122's Outlines, `screenspace` = true extrudes along normals in
-// object space (thickness in world units) — what we want for a cartoon hull.
-const Outline: React.FC = () => (
-  <Outlines screenspace thickness={OUTLINE_THICKNESS} color={OUTLINE_COLOR} angle={0} />
-);
+// In 'toy' mode, the character is a tactile miniature figurine, so 2D cartoon outlines are omitted.
+// In 'toon' mode, outlines provide the illustrated cel-shaded cartoon aesthetic.
+const Outline: React.FC = () => {
+  if (CURRENT_CHARACTER_STYLE === 'toy') return null;
+  return <Outlines screenspace thickness={OUTLINE_THICKNESS} color={OUTLINE_COLOR} angle={0} />;
+};
 
 interface ArmProps {
   side: 1 | -1;
