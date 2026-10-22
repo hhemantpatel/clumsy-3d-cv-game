@@ -79,7 +79,8 @@ let foliageDepthMat: THREE.MeshDepthMaterial | null = null;
 /** Shared low-poly material for every merged environment mesh (yard, trees, scenery). */
 export function getEnvMaterial(): THREE.MeshStandardMaterial {
   if (!foliageMat) {
-    foliageMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
+    // Tactile miniature model canopy finish with soft specular highlights
+    foliageMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.52, metalness: 0.02 });
     foliageMat.onBeforeCompile = patchWind;
     foliageMat.customProgramCacheKey = () => 'env-wind-v1';
   }

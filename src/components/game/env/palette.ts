@@ -6,12 +6,12 @@ import * as THREE from 'three';
  * whole environment can be re-tuned in one place.
  */
 export const PALETTE = {
-  // Meadow / lawn (ground and grass blades share these so they blend seamlessly)
-  meadowA: '#528334',
-  meadowB: '#6b983f',
-  meadowDry: '#a3ad4c',
-  bladeTip: '#c5d77a',
-  bladeBase: '#355f25',
+  // Meadow / lawn: vibrant lush emerald & sunny chartreuse
+  meadowA: '#48a832',
+  meadowB: '#6ec238',
+  meadowDry: '#a3d944',
+  bladeTip: '#d9f99d',
+  bladeBase: '#22541d',
 
   // Foliage
   leafDeep: '#2f6532',
@@ -26,16 +26,16 @@ export const PALETTE = {
   birchLeaf: ['#b9c64c', '#d3d86f', '#a7b845'],
   willow: ['#7fa94a', '#93b957', '#6a9640'],
 
-  // Wood & bark
+  // Wood & bark: warm rich cedar & amber
   bark: '#6b4a33',
   barkDark: '#4c3324',
   birchBark: '#ece6da',
   birchMark: '#3d3631',
-  wood: '#9a6a43',
-  woodDark: '#6b4730',
-  woodLight: '#c49563',
-  picket: '#f2eadb',
-  picketShade: '#e0d3ba',
+  wood: '#b45309',
+  woodDark: '#78350f',
+  woodLight: '#d97706',
+  picket: '#fef3c7',
+  picketShade: '#fde68a',
 
   // Stone, soil, water
   stone: '#99958b',
@@ -51,8 +51,8 @@ export const PALETTE = {
   // Accents
   flowers: ['#f6f1e4', '#f5d25a', '#ee8db0', '#b48ae0', '#f08d5c', '#86b3ea'],
   berry: '#c43a4c',
-  roofRed: '#b1503d',
-  roofBrown: '#7a5236',
+  roofRed: '#c2410c',
+  roofBrown: '#92400e',
   roofBlue: '#4d5b8a',
   cream: '#f4ead2',
   wool: '#f3f0ea',

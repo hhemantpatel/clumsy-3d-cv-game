@@ -2,6 +2,7 @@ import React, { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { useGame } from '../../context/GameContext';
+import { PhysicsEngine } from '../../wasm/pkg/game_engine_wasm';
 import {
   FLOOR_Y,
   Merged,
@@ -550,7 +551,7 @@ function gableGeos(): THREE.BufferGeometry {
 function buildShingles(): THREE.InstancedMesh {
   const rows = Math.floor((SLAB_LEN - 0.42) / 0.34) + 1;
   const geo = new THREE.BoxGeometry(0.44, 0.05, ROOF_DEPTH + 0.08);
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.78, metalness: 0 });
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.52, metalness: 0.02 });
   const mesh = new THREE.InstancedMesh(geo, mat, rows * 2);
   const palette = ['#a8432f', '#9c3b2b', '#b5503a', '#8f3626', '#a3402c'].map((c) => new THREE.Color(c));
   const r = rng(5);
@@ -603,7 +604,31 @@ function beamParts(b: (typeof BEAMS)[number]): Part[] {
 // Scratch objects for useFrame (no per-frame allocations)
 const _dir = new THREE.Vector3();
 
-export const House: React.FC = () => {
+function ccw(ax: number, az: number, bx: number, bz: number, cx: number, cz: number) {
+  return (cz - az) * (bx - ax) > (bz - az) * (cx - ax);
+}
+function segIntersects(
+  ax: number, az: number, bx: number, bz: number,
+  cx: number, cz: number, dx: number, dz: number
+) {
+  return (
+    ccw(ax, az, cx, cz, dx, dz) !== ccw(bx, bz, cx, cz, dx, dz) &&
+    ccw(ax, az, bx, bz, cx, cz) !== ccw(ax, az, bx, bz, dx, dz)
+  );
+}
+
+const HOUSE_WALL_SEGS = [
+  [-6.65, -1.5, 6.65, -1.5],   // Wall 0 (front wall)
+  [-6.65, -10.5, 6.65, -10.5], // Wall 1 (back wall)
+  [-6.65, -10.5, -6.65, -1.5], // Wall 2 (left wall)
+  [6.65, -10.5, 6.65, -1.5],   // Wall 3 (right wall)
+];
+
+interface HouseProps {
+  engine?: PhysicsEngine | null;
+}
+
+export const House: React.FC<HouseProps> = ({ engine }) => {
   const { isInsideHouse } = useGame();
   const insideRef = useRef(isInsideHouse);
   insideRef.current = isInsideHouse;
@@ -617,9 +642,10 @@ export const House: React.FC = () => {
   const roofState = useRef(1);
 
   const built = useMemo(() => {
-    const sidingMat = new THREE.MeshStandardMaterial({ map: sidingTexture(), roughness: 0.8 });
-    const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTexture(), roughness: 0.95 });
-    const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture(), roughness: 0.55, metalness: 0.02 });
+    // Tactile miniature toy clapboard siding, stone foundation, and polished timber floor
+    const sidingMat = new THREE.MeshStandardMaterial({ map: sidingTexture(), roughness: 0.48, metalness: 0.02 });
+    const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTexture(), roughness: 0.62, metalness: 0.02 });
+    const floorMat = new THREE.MeshStandardMaterial({ map: floorTexture(), roughness: 0.35, metalness: 0.04 });
     const smokeMat = new THREE.MeshBasicMaterial({ color: '#eef2f6', transparent: true, opacity: 0.38, depthWrite: false });
     const smokeGeo = new THREE.SphereGeometry(0.3, 8, 6);
     const walls = WALLS.map((w) => buildWall(w));
@@ -647,13 +673,28 @@ export const House: React.FC = () => {
     const cam = state.camera.position;
     const k = Math.min(1, delta * 8);
 
-    // 1. Wall cutaway: only walls between camera and interior collapse to a stub.
+    const px = engine ? engine.get_player_x() : (inside ? 0 : 0);
+    const pz = engine ? engine.get_player_z() : (inside ? -6 : 8);
+
+    // True dynamic occlusion check:
+    // Does the camera's direct line-of-sight to the player intersect any house wall?
+    const wallOccluded = HOUSE_WALL_SEGS.map(([wx1, wz1, wx2, wz2]) =>
+      segIntersects(cam.x, cam.z, px, pz, wx1, wz1, wx2, wz2)
+    );
+
+    // When the player is inside the house, also ensure the camera-side wall drops even at grazing angles:
+    if (inside) {
+      if (cam.z > -1.5) wallOccluded[0] = true;
+      if (cam.z < -10.5) wallOccluded[1] = true;
+      if (cam.x < -6.5) wallOccluded[2] = true;
+      if (cam.x > 6.5) wallOccluded[3] = true;
+    }
+
+    // 1. Wall cutaway: any wall coming between the camera and player collapses to a stub.
     for (let i = 0; i < 4; i++) {
       const g = wallGroups.current[i];
       if (!g) continue;
-      const between =
-        i === 0 ? cam.z > -1.5 : i === 1 ? cam.z < -10.5 : i === 2 ? cam.x < -6.5 : cam.x > 6.5;
-      const target = inside && between ? STUB : 1;
+      const target = wallOccluded[i] ? STUB : 1;
       let v = cutState.current[i];
       if (v !== target) {
         v += (target - v) * k;
@@ -665,10 +706,11 @@ export const House: React.FC = () => {
       }
     }
 
-    // 2. Roof lifts off & hides while inside.
+    // 2. Roof & terrace: lifts off and disappears when player is inside OR when the house occludes the player.
     const roof = roofRef.current;
     if (roof) {
-      const target = inside ? 0 : 1;
+      const shouldHideRoof = inside || wallOccluded.some(Boolean);
+      const target = shouldHideRoof ? 0 : 1;
       let r = roofState.current;
       if (r !== target) {
         r += (target - r) * Math.min(1, delta * 9);

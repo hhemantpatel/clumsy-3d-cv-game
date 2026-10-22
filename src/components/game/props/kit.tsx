@@ -197,18 +197,21 @@ let _mats: Record<MatKey, THREE.Material> | null = null;
 export function kitMats(): Record<MatKey, THREE.Material> {
   if (!_mats) {
     _mats = {
-      matte: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 }),
-      satin: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.05 }),
-      metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.32, metalness: 0.65 }),
+      // Tactile painted miniature wood / porcelain finish with soft light response
+      matte: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.48, metalness: 0.02 }),
+      // Smooth molded toy lacquer / vinyl plastic
+      satin: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0.08 }),
+      // Bright polished miniature brass / metal
+      metal: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.16, metalness: 0.85 }),
       // Unlit, HDR (colour * k > 1) and not tone-mapped -> picked up by the Bloom pass.
       glow: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
-      // Cheap glass: plain transparent standard material (NO transmission -> no extra scene pass).
+      // Crisp toy glass
       glass: new THREE.MeshStandardMaterial({
         vertexColors: true,
         transparent: true,
-        opacity: 0.3,
-        roughness: 0.08,
-        metalness: 0.2,
+        opacity: 0.35,
+        roughness: 0.04,
+        metalness: 0.15,
         depthWrite: false,
       }),
     };

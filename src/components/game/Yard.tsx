@@ -46,7 +46,8 @@ export const Yard: React.FC = () => {
 // Ground: world-space meadow colour + worn dirt along the stepping-stone path.
 // ---------------------------------------------------------------------------
 function createGroundMaterial(): THREE.MeshStandardMaterial {
-  const mat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, metalness: 0 });
+  // Rich velvety lawn response for diorama lighting
+  const mat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.62, metalness: 0.02 });
   const uniforms = { ...meadowUniforms(), uDirt: { value: new THREE.Color(PALETTE.dirt) } };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);

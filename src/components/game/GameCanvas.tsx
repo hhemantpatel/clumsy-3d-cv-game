@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Environment, ContactShadows, Sparkles } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette, HueSaturation } from '@react-three/postprocessing';
+import { EffectComposer, Bloom, Vignette, HueSaturation, TiltShift2 } from '@react-three/postprocessing';
 import { SUN_POSITION } from './env/palette';
 import * as THREE from 'three';
 import { getPhysicsEngine } from '../../wasm/engine';
@@ -36,11 +36,11 @@ export const GameCanvas: React.FC = () => {
       <Canvas
         shadows="soft"
         dpr={[1, 1.5]}
-        camera={{ position: [0, 8, 16], fov: 42, near: 0.1, far: 240 }}
+        camera={{ position: [0, 11, 16], fov: 28, near: 0.1, far: 240 }}
         gl={{
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.12,
+          toneMappingExposure: 1.18,
           powerPreference: 'high-performance',
           preserveDrawingBuffer: true,
         }}
@@ -58,8 +58,8 @@ export const GameCanvas: React.FC = () => {
         <directionalLight
           castShadow
           position={SUN_POSITION}
-          intensity={1.35}
-          color="#fef9c3"
+          intensity={1.75}
+          color="#fff7ed"
           shadow-mapSize-width={1024}
           shadow-mapSize-height={1024}
           shadow-camera-near={1.0}
@@ -72,20 +72,20 @@ export const GameCanvas: React.FC = () => {
           shadow-normalBias={0.035}
         />
 
-        {/* Balanced Ambient & Warm Hemisphere Lighting */}
-        <ambientLight intensity={0.55} color="#ecfdf5" />
-        <hemisphereLight args={['#60a5fa', '#15803d', 0.5]} />
+        {/* Balanced Ambient & Warm Hemisphere Lighting for cozy miniature diorama */}
+        <ambientLight intensity={0.65} color="#fef3c7" />
+        <hemisphereLight args={['#38bdf8', '#22c55e', 0.65]} />
 
-        {/* 3. Soft Velvet Contact Shadows on the ground (Baked once at startup via frames={1} for maximum 60FPS performance) */}
+        {/* 3. Soft Velvet Contact Shadows on the ground */}
         <ContactShadows
           position={[0, 0.01, 0]}
-          opacity={0.35}
-          scale={26}
-          blur={2.0}
-          far={4.5}
+          opacity={0.65}
+          scale={32}
+          blur={2.2}
+          far={5.0}
           frames={1}
           resolution={512}
-          color="#020617"
+          color="#0f172a"
         />
 
         {/* 4. Ambient Floating Golden Sparkles */}
@@ -104,23 +104,31 @@ export const GameCanvas: React.FC = () => {
 
         {/* 6. 3D Yard & House Meshes */}
         <Yard />
-        <House />
+        <House engine={engine} />
         <Interactables />
         <Particles engine={engine} />
         <Butterflies />
         <Character engine={engine} />
         <CameraController engine={engine} />
 
-        {/* 7. Lightweight High-Performance Post-Processing */}
+        {/* 7. Classic Tilt-Shift Miniature Photography (Evan Wallace Tilt-Shift) */}
         <EffectComposer multisampling={4}>
+          <TiltShift2
+            blur={0.28}
+            taper={0.52}
+            start={[0.0, 0.46]}
+            end={[1.0, 0.46]}
+            samples={12}
+            direction={[0, 1]}
+          />
           <Bloom
-            luminanceThreshold={0.88}
+            luminanceThreshold={0.85}
             luminanceSmoothing={0.18}
             intensity={0.45}
             radius={0.5}
           />
-          <HueSaturation saturation={0.15} />
-          <Vignette eskil={false} offset={0.15} darkness={0.38} />
+          <HueSaturation saturation={0.28} />
+          <Vignette eskil={false} offset={0.18} darkness={0.32} />
         </EffectComposer>
       </Canvas>
     </div>

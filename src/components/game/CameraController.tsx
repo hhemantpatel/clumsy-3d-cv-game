@@ -13,17 +13,20 @@ interface CameraControllerProps {
  * Always sits behind the player's back and smoothly turns with the player as they turn.
  * Allows free manual orbit via mouse drag and zoom via scroll wheel, with smooth auto-realign behind the character when moving.
  */
+const DIORAMA_RADIUS = 9.2;
+const DIORAMA_PHI = Math.PI / 2.7; // ~66.7° elevated tabletop diorama angle
+
 export const CameraController: React.FC<CameraControllerProps> = ({ engine }) => {
   const { camera, gl } = useThree();
   const { activeModal, hasStarted } = useGame();
 
   const orbitState = useRef({
-    radius: 6.8,
-    targetRadius: 6.8,
+    radius: DIORAMA_RADIUS,
+    targetRadius: DIORAMA_RADIUS,
     theta: 0, // Current world azimuth
     userYawOffset: 0, // Manual user orbit offset from player back
-    phi: Math.PI / 3.4, // ~53° elevation over character's shoulders
-    targetPhi: Math.PI / 3.4,
+    phi: DIORAMA_PHI,
+    targetPhi: DIORAMA_PHI,
     isDragging: false,
     lastMouseX: 0,
     lastMouseY: 0,
@@ -89,16 +92,16 @@ export const CameraController: React.FC<CameraControllerProps> = ({ engine }) =>
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
       if (e.key === 'r' || e.key === 'R') {
         orbitState.current.userYawOffset = 0;
-        orbitState.current.targetRadius = 6.8;
-        orbitState.current.targetPhi = Math.PI / 3.4;
+        orbitState.current.targetRadius = DIORAMA_RADIUS;
+        orbitState.current.targetPhi = DIORAMA_PHI;
       }
     };
 
     // Double-click canvas to reset camera behind player
     const handleDblClick = () => {
       orbitState.current.userYawOffset = 0;
-      orbitState.current.targetRadius = 6.8;
-      orbitState.current.targetPhi = Math.PI / 3.4;
+      orbitState.current.targetRadius = DIORAMA_RADIUS;
+      orbitState.current.targetPhi = DIORAMA_PHI;
     };
 
     canvas.style.cursor = 'grab';
@@ -107,8 +110,8 @@ export const CameraController: React.FC<CameraControllerProps> = ({ engine }) =>
     window.addEventListener('pointerup', handlePointerUp);
     const handleResetEvent = () => {
       orbitState.current.userYawOffset = 0;
-      orbitState.current.targetRadius = 6.8;
-      orbitState.current.targetPhi = Math.PI / 3.4;
+      orbitState.current.targetRadius = DIORAMA_RADIUS;
+      orbitState.current.targetPhi = DIORAMA_PHI;
     };
 
     window.addEventListener('reset-camera', handleResetEvent);
