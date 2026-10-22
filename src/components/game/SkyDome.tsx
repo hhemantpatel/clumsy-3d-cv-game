@@ -41,12 +41,11 @@ void main() {
   vec3 col = mix(uHorizon, uMid, smoothstep(0.0, 0.32, y));
   col = mix(col, uZenith, smoothstep(0.3, 1.0, y));
 
-  // Sun: crisp round disc + wide warm glow + horizon warmth on the sun side
+  // Atmospheric sun glow: wide warm glow + horizon warmth on the sun side
   float sd = max(dot(d, uSunDir), 0.0);
-  float disc = smoothstep(0.99935, 0.99965, sd);
-  float glow = pow(sd, 900.0) * 1.2 + pow(sd, 48.0) * 0.35 + pow(sd, 6.0) * 0.12;
+  float glow = pow(sd, 900.0) * 1.2 + pow(sd, 48.0) * 0.45 + pow(sd, 6.0) * 0.18;
   col += uSunGlow * glow;
-  col += uSunGlow * 0.08 * pow(sd, 2.0) * (1.0 - smoothstep(0.0, 0.35, y));
+  col += uSunGlow * 0.12 * pow(sd, 2.0) * (1.0 - smoothstep(0.0, 0.35, y));
 
   // Cirrus wisps: stretched fbm projected onto a high cloud plane
   if (y > 0.015) {
@@ -61,8 +60,6 @@ void main() {
     float fade = smoothstep(0.015, 0.22, y) * (1.0 - 0.5 * smoothstep(0.55, 1.0, y));
     col = mix(col, vec3(1.0), wisp * fade * 0.42);
   }
-
-  col = mix(col, uSunCore * 3.0, disc);
 
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>

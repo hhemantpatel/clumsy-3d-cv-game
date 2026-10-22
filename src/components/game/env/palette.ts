@@ -69,20 +69,27 @@ export const PALETTE = {
   mountainTop: '#7d9a8d',
   snow: '#eef2f2',
 
-  // Sky (horizon matches GameCanvas fog colour so the dome melts into fog)
-  skyZenith: '#4d8bd8',
-  skyMid: '#92c3f0',
-  skyHorizon: '#bfdbfe',
-  sunCore: '#fff6dc',
-  sunGlow: '#ffe3a3',
-  cloud: '#ffffff',
-  cloudShade: '#dfe8f2',
+  // Sky: rich storybook sunset gradient (horizon matches GameCanvas fog colour)
+  skyZenith: '#3a4b6e',
+  skyMid: '#df6d4e',
+  skyHorizon: '#ffaa5b',
+  sunCore: '#fff8b8',
+  sunGlow: '#ff7824',
+  cloud: '#fff5ea',
+  cloudShade: '#f3c4a8',
 } as const;
 
 /**
  * GameCanvas places its shadow-casting directional light at this position (target at origin).
- * The visible sun in the sky dome and the water specular use the same direction so shadows
+ * Low-angle golden sunset position (~21° elevation) in the western-northwestern sky.
+ * The visible sun in the sky and water specular use the exact same direction so shadows
  * always point away from the sun the player sees.
  */
-export const SUN_POSITION: [number, number, number] = [-14, 24, 18];
+export const SUN_POSITION: [number, number, number] = [-45, 22, -35];
 export const SUN_DIRECTION = new THREE.Vector3(...SUN_POSITION).normalize();
+export const SUN_DISTANCE_FAR = 135;
+export const SUN_POSITION_FAR: [number, number, number] = [
+  SUN_DIRECTION.x * SUN_DISTANCE_FAR,
+  SUN_DIRECTION.y * SUN_DISTANCE_FAR,
+  SUN_DIRECTION.z * SUN_DISTANCE_FAR,
+];
