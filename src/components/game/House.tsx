@@ -604,6 +604,72 @@ function staticParts(): Part[] {
   }
   parts.push(box(3.9, 0.22, 0.26, C.trim, [0, 3.0, 0.15]));
 
+  // ---------- Cozy Porch Life Details ----------
+  // 1. Rustic wooden rocking chair on the right porch deck
+  const rcX = 1.45;
+  const rcZ = -0.65;
+  // Curved floor runners
+  parts.push(box(0.04, 0.04, 0.68, C.walnut, [rcX - 0.2, 0.21, rcZ], { r: [0.08, 0, 0] }));
+  parts.push(box(0.04, 0.04, 0.68, C.walnut, [rcX + 0.2, 0.21, rcZ], { r: [0.08, 0, 0] }));
+  // 4 legs
+  for (const dx of [-0.18, 0.18]) {
+    parts.push(box(0.04, 0.28, 0.04, C.oak, [rcX + dx, 0.36, rcZ - 0.18]));
+    parts.push(box(0.04, 0.28, 0.04, C.oak, [rcX + dx, 0.36, rcZ + 0.18]));
+    // Armrests
+    parts.push(box(0.035, 0.03, 0.38, C.oak, [rcX + dx, 0.68, rcZ]));
+    parts.push(box(0.03, 0.22, 0.03, C.oak, [rcX + dx, 0.58, rcZ + 0.16]));
+  }
+  // Slatted seat & backrest
+  parts.push(box(0.44, 0.035, 0.42, C.oakLight, [rcX, 0.48, rcZ]));
+  parts.push(box(0.42, 0.48, 0.03, C.oak, [rcX, 0.74, rcZ - 0.19], { r: [-0.14, 0, 0] }));
+  parts.push(box(0.46, 0.05, 0.04, C.walnut, [rcX, 0.98, rcZ - 0.22]));
+
+  // 2. Sunny yellow rubber garden boots by the doorstep
+  const bootY = 0.18;
+  // Left boot
+  parts.push(box(0.095, 0.075, 0.17, '#eab308', [0.82, bootY + 0.04, -0.76]));
+  parts.push(cyl(0.048, 0.052, 0.2, '#eab308', [0.82, bootY + 0.14, -0.79], { seg: 8 }));
+  parts.push(box(0.10, 0.02, 0.175, '#451a03', [0.82, bootY + 0.01, -0.76]));
+  // Right boot (slightly angled)
+  parts.push(box(0.095, 0.075, 0.17, '#eab308', [0.95, bootY + 0.04, -0.74], { r: [0, 0.22, 0] }));
+  parts.push(cyl(0.048, 0.052, 0.2, '#eab308', [0.95, bootY + 0.14, -0.77], { seg: 8, r: [0, 0.22, 0] }));
+  parts.push(box(0.10, 0.02, 0.175, '#451a03', [0.95, bootY + 0.01, -0.74], { r: [0, 0.22, 0] }));
+
+  // 3. Handcrafted watering can on the left porch deck
+  const wcX = -1.45;
+  const wcZ = -0.62;
+  parts.push(cyl(0.12, 0.14, 0.24, '#a8744f', [wcX, 0.30, wcZ], { seg: 10, m: 'metal' }));
+  parts.push(cyl(0.022, 0.032, 0.26, '#a8744f', [wcX + 0.14, 0.36, wcZ], { seg: 6, r: [0, 0, -0.82], m: 'metal' }));
+  parts.push(cone(0.052, 0.03, C.brass, [wcX + 0.25, 0.46, wcZ], { seg: 8, r: [0, 0, -0.82], m: 'metal' }));
+  parts.push(torus(0.13, 0.014, '#a8744f', [wcX, 0.42, wcZ], { seg: 12, m: 'metal' }));
+
+  // 4. Ceramic milk jug / crock
+  parts.push(cyl(0.10, 0.13, 0.32, '#f5ede0', [-1.65, 0.34, -0.42], { seg: 10 }));
+  parts.push(cyl(0.06, 0.075, 0.08, '#f5ede0', [-1.65, 0.52, -0.42], { seg: 8 }));
+  parts.push(torus(0.065, 0.014, '#d6c8ae', [-1.65, 0.56, -0.42], { r: [Math.PI / 2, 0, 0], seg: 10 }));
+
+  // 5. Sheltered split firewood stack outside against the right foundation under eave overhang
+  const fwX = 6.74;
+  const fwZ = -6.0;
+  // Wooden support skids
+  parts.push(box(0.06, 0.06, 1.8, C.beam, [fwX - 0.06, 0.18, fwZ]));
+  parts.push(box(0.06, 0.06, 1.8, C.beam, [fwX + 0.26, 0.18, fwZ]));
+  // Stack of 12 round split logs (3 staggered tiers)
+  const logRows = [
+    { count: 5, y: 0.28, z0: fwZ - 0.65, dz: 0.32 },
+    { count: 4, y: 0.42, z0: fwZ - 0.49, dz: 0.32 },
+    { count: 3, y: 0.56, z0: fwZ - 0.33, dz: 0.32 },
+  ];
+  for (const row of logRows) {
+    for (let i = 0; i < row.count; i++) {
+      const lz = row.z0 + i * row.dz;
+      // Bark cylinder
+      parts.push(cyl(0.068, 0.068, 0.42, C.walnut, [fwX + 0.10, row.y, lz], { r: [0, 0, Math.PI / 2], seg: 8 }));
+      // End-grain faces visible from camera
+      parts.push(cyl(0.065, 0.065, 0.01, C.oakLight, [fwX + 0.315, row.y, lz], { r: [0, 0, Math.PI / 2], seg: 8 }));
+    }
+  }
+
   return parts;
 }
 
@@ -729,7 +795,20 @@ function roofParts(): Part[] {
     parts.push(sph(0.14, C.brass, [0, RIDGE_Y + 0.38, fz], { seg: 8, m: 'metal' }));
   }
 
-  // 5. Front gable details: round attic vent
+  // 5. Front & Back gable details: curved Tudor timber framing + round attic vent
+  for (const gz of [-1.35, -10.65]) {
+    // Horizontal collar tie beam
+    parts.push(box(5.8, 0.14, 0.07, C.beam, [0, 4.88, gz]));
+    // Vertical king-post beam rising into the roof peak
+    parts.push(box(0.16, 1.85, 0.07, C.beam, [0, 6.15, gz]));
+    // Symmetrical curved diagonal arch braces
+    for (const s of [-1, 1]) {
+      parts.push(box(0.13, 1.35, 0.07, C.beam, [s * 2.15, 4.36, gz], { r: [0, 0, s * -0.52] }));
+      parts.push(box(0.13, 1.15, 0.07, C.beam, [s * 1.25, 5.75, gz], { r: [0, 0, s * 0.58] }));
+    }
+  }
+
+  // Front round attic vent
   parts.push(torus(0.34, 0.055, C.trim, [0, 5.5, -1.33], { seg: 20 }));
   parts.push(cyl(0.32, 0.32, 0.02, '#3a2a20', [0, 5.5, -1.345], { r: [Math.PI / 2, 0, 0], seg: 20 }));
   for (let i = -2; i <= 2; i++) {
@@ -737,14 +816,29 @@ function roofParts(): Part[] {
     parts.push(box(hw * 2, 0.04, 0.03, C.trim, [0, 5.5 + i * 0.11, -1.32], { r: [-0.4, 0, 0] }));
   }
 
-  // 6. Chimney sitting on the curved slope
+  // 6. Tapered cartoon chimney with dual storybook pots
   const [cx, , cz] = CHIMNEY;
   const chimRoofY = getRoofY(cx);
-  const chimH = 8.1 - chimRoofY + 0.5;
-  parts.push(box(0.9, chimH, 0.9, C.brick, [cx, chimRoofY + chimH / 2 - 0.25, cz]));
-  for (const y of [6.2, 6.9, 7.6]) parts.push(box(0.94, 0.06, 0.94, C.brickDark, [cx, y, cz]));
-  parts.push(box(1.1, 0.14, 1.1, '#6f6a64', [cx, 8.0, cz]));
-  parts.push(cyl(0.13, 0.16, 0.36, C.terracotta, [cx, 8.24, cz], { seg: 10 }));
+  // Battered cobblestone base sitting on roof curve
+  parts.push(box(1.18, 0.95, 1.18, '#8c8275', [cx, chimRoofY + 0.35, cz]));
+  parts.push(box(1.24, 0.08, 1.24, C.stoneCap, [cx, chimRoofY + 0.82, cz]));
+  // Stepped tapered shaft
+  parts.push(box(1.02, 1.2, 1.02, C.brick, [cx, chimRoofY + 1.45, cz]));
+  parts.push(box(0.88, 1.1, 0.88, C.brick, [cx, chimRoofY + 2.55, cz]));
+  // Decorative brick bands
+  parts.push(box(0.92, 0.06, 0.92, C.brickDark, [cx, 7.3, cz]));
+  parts.push(box(0.92, 0.06, 0.92, C.brickDark, [cx, 7.7, cz]));
+  // Corbelled stone cap
+  parts.push(box(1.08, 0.16, 1.08, '#6f6a64', [cx, 8.08, cz]));
+  parts.push(box(1.14, 0.04, 1.14, C.stoneCap, [cx, 8.18, cz]));
+
+  // Dual storybook terracotta pots
+  // Main pot (primary smoke emitter)
+  parts.push(cyl(0.135, 0.16, 0.42, C.terracotta, [cx - 0.16, 8.41, cz], { seg: 10 }));
+  parts.push(torus(0.14, 0.024, '#c97356', [cx - 0.16, 8.60, cz], { r: [Math.PI / 2, 0, 0], seg: 10 }));
+  // Secondary smaller pot with subtle whimsical tilt
+  parts.push(cyl(0.11, 0.13, 0.30, C.terracotta, [cx + 0.22, 8.35, cz], { seg: 10, r: [0.04, 0, -0.06] }));
+  parts.push(torus(0.115, 0.02, '#c97356', [cx + 0.22, 8.48, cz], { r: [Math.PI / 2 + 0.04, 0, -0.06], seg: 10 }));
 
   // 7. Porch curved roof
   const porchGeo = new THREE.ExtrudeGeometry(curvedPorchShape(), { depth: PORCH_DEPTH, bevelEnabled: false });
@@ -755,6 +849,14 @@ function roofParts(): Part[] {
   const porchBargeGeo = new THREE.ExtrudeGeometry(curvedPorchShape(0.05, 0.06), { depth: 0.08, bevelEnabled: false });
   porchBargeGeo.translate(0, 0, PORCH_ZC + PORCH_DEPTH / 2 + 0.02);
   parts.push(part(porchBargeGeo, C.trim, [0, 0, 0]));
+
+  // Scalloped wooden valence fringe along the front porch eave
+  const valZ = PORCH_ZC + PORCH_DEPTH / 2 + 0.035;
+  parts.push(box(2 * PORCH_HS + 0.06, 0.06, 0.02, C.trim, [0, 3.09, valZ]));
+  for (let i = 0; i < 11; i++) {
+    const vx = -PORCH_HS + 0.18 + i * ((2 * PORCH_HS - 0.36) / 10);
+    parts.push(box(0.12, 0.05, 0.025, C.trim, [vx, 3.04, valZ]));
+  }
 
   // Porch gable wall fill
   const porchGable = new THREE.Shape();
@@ -1054,7 +1156,7 @@ export const House: React.FC<HouseProps> = ({ engine }) => {
         <Merged set={built.roof} castShadow receiveShadow />
         <mesh geometry={built.gables} material={built.sidingMat} castShadow receiveShadow />
         <primitive object={built.shingles} />
-        <group ref={smokeRef} position={[CHIMNEY[0], 8.45, CHIMNEY[2]]}>
+        <group ref={smokeRef} position={[CHIMNEY[0] - 0.16, 8.65, CHIMNEY[2]]}>
           {[0, 1, 2, 3, 4, 5, 6].map((i) => (
             <mesh key={i} geometry={built.smokeGeo} material={built.smokeMat} />
           ))}
