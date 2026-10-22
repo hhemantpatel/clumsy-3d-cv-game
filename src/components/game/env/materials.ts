@@ -87,6 +87,21 @@ export function getEnvMaterial(): THREE.MeshStandardMaterial {
   return foliageMat;
 }
 
+/** Creates an independent transparent foliage material for trees with dynamic opacity fading. */
+export function createTreeFoliageMaterial(): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.52,
+    metalness: 0.02,
+    transparent: true,
+    opacity: 1.0,
+    depthWrite: true,
+  });
+  mat.onBeforeCompile = patchWind;
+  mat.customProgramCacheKey = () => 'env-wind-tree-fade-v1';
+  return mat;
+}
+
 /** Depth material with the same sway so swaying canopies cast matching shadows. */
 export function getEnvDepthMaterial(): THREE.MeshDepthMaterial {
   if (!foliageDepthMat) {

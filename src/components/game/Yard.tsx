@@ -1,28 +1,140 @@
 import React, { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
 import { Grass } from './Grass';
 import { BadmintonCourt } from './BadmintonCourt';
 import { GeoBuilder, PRIM, between, V3 } from './env/GeoBuilder';
 import { PALETTE } from './env/palette';
-import { GLSL_MEADOW, GLSL_NOISE, getGlowMaterial, makeEnvMesh, meadowUniforms } from './env/materials';
+import { GLSL_MEADOW, GLSL_NOISE, getGlowMaterial, makeEnvMesh, meadowUniforms, createTreeFoliageMaterial, getEnvDepthMaterial } from './env/materials';
 import { addDeciduousTree, addFlowerClump, addLantern, addRock, addShrub } from './env/builders';
 import { FENCE, GATE_HALF, PATH_END_Z, PATH_START_Z, SHRUBS, YARD_TREES, isBlocked, pathX } from './env/layout';
 import { WindDriver } from './env/WindDriver';
+import { PhysicsEngine } from '../../wasm/pkg/game_engine_wasm';
+
+function distToSegment(
+  px: number, pz: number,
+  ax: number, az: number,
+  bx: number, bz: number
+) {
+  const dx = bx - ax;
+  const dz = bz - az;
+  const lenSq = dx * dx + dz * dz;
+  if (lenSq < 1e-5) return { dist: Math.hypot(px - ax, pz - az), t: 0 };
+  let t = ((px - ax) * dx + (pz - az) * dz) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const projX = ax + t * dx;
+  const projZ = az + t * dz;
+  return { dist: Math.hypot(px - projX, pz - projZ), t };
+}
+
+interface TreeItem {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  radius: number;
+  geo: THREE.BufferGeometry;
+  mat: THREE.MeshStandardMaterial;
+}
+
+interface YardProps {
+  engine?: PhysicsEngine | null;
+}
 
 /**
- * The garden yard. Everything static (picket fence, gate, trees, shrubs, flowers, rocks,
- * stepping stones) is merged into ONE vertex-coloured mesh with vertex-shader wind,
- * plus one unlit glow mesh for the lanterns, the procedural meadow ground and the grass.
+ * The garden yard with dynamic line-of-sight occluding trees:
+ * Trees that obstruct the camera view of the player smoothly fade down to 10% opacity.
  */
-export const Yard: React.FC = () => {
+export const Yard: React.FC<YardProps> = ({ engine }) => {
   const ground = useMemo(() => createGroundMaterial(), []);
   const { yardMesh, glowMesh } = useMemo(() => buildYard(), []);
+
+  // 3 prominent yard trees built as separate meshes with dynamic transparency fading
+  const trees = useMemo<TreeItem[]>(() => {
+    // 1. Oak tree
+    const bOak = new GeoBuilder(2024);
+    addDeciduousTree(bOak, YARD_TREES.oak.x, YARD_TREES.oak.z, 1.2, {
+      leaves: [PALETTE.leafDeep, PALETTE.leaf, PALETTE.leafLight, PALETTE.leafSun],
+      canopyOffset: [-0.9, 0], canopyRadius: 1.35,
+    });
+    const oakGeo = bOak.build();
+
+    // 2. Maple tree
+    const bMaple = new GeoBuilder(2025);
+    addDeciduousTree(bMaple, YARD_TREES.maple.x, YARD_TREES.maple.z, 1.05, {
+      leaves: [PALETTE.autumn[3], PALETTE.autumn[0], PALETTE.autumn[1], PALETTE.autumn[2]],
+      canopyOffset: [0.6, 0], canopyRadius: 1.35,
+    });
+    const mapleGeo = bMaple.build();
+
+    // 3. Cherry blossom tree
+    const bCherry = new GeoBuilder(2026);
+    addDeciduousTree(bCherry, YARD_TREES.cherry.x, YARD_TREES.cherry.z, 1.0, {
+      leaves: [PALETTE.blossom[3], PALETTE.blossom[0], PALETTE.blossom[1], PALETTE.blossom[2]],
+      bark: '#5a3d2e', canopyRadius: 1.3, trunkHeight: 2.3,
+    });
+    const cherryGeo = bCherry.build();
+
+    return [
+      {
+        id: 'oak',
+        name: 'Oak Tree',
+        x: YARD_TREES.oak.x - 0.9,
+        z: YARD_TREES.oak.z,
+        radius: 2.4,
+        geo: oakGeo,
+        mat: createTreeFoliageMaterial(),
+      },
+      {
+        id: 'maple',
+        name: 'Maple Tree',
+        x: YARD_TREES.maple.x + 0.6,
+        z: YARD_TREES.maple.z,
+        radius: 2.3,
+        geo: mapleGeo,
+        mat: createTreeFoliageMaterial(),
+      },
+      {
+        id: 'cherry',
+        name: 'Cherry Blossom Tree',
+        x: YARD_TREES.cherry.x,
+        z: YARD_TREES.cherry.z,
+        radius: 2.1,
+        geo: cherryGeo,
+        mat: createTreeFoliageMaterial(),
+      },
+    ];
+  }, []);
 
   useEffect(() => () => {
     yardMesh.geometry.dispose();
     glowMesh.geometry.dispose();
     ground.dispose();
-  }, [yardMesh, glowMesh, ground]);
+    trees.forEach((t) => {
+      t.geo.dispose();
+      t.mat.dispose();
+    });
+  }, [yardMesh, glowMesh, ground, trees]);
+
+  // Dynamic tree transparency: fades opacity down to 10% (0.10) whenever a tree obstructs the character
+  useFrame(({ camera }, delta) => {
+    const px = engine ? engine.get_player_x() : 0;
+    const py = engine ? engine.get_player_y() + 1.2 : 1.2;
+    const pz = engine ? engine.get_player_z() : 8;
+    const cam = camera.position;
+
+    trees.forEach((tree) => {
+      const { dist, t } = distToSegment(tree.x, tree.z, cam.x, cam.z, px, pz);
+      const rayY = cam.y + t * (py - cam.y);
+
+      // Check if tree is strictly between camera and player along the ray and intersects canopy volume
+      const isOccluding = t > 0.05 && t < 0.95 && dist < tree.radius && rayY >= 0.2 && rayY <= 7.5;
+
+      const targetOpacity = isOccluding ? 0.10 : 1.0;
+      tree.mat.opacity = THREE.MathUtils.lerp(tree.mat.opacity, targetOpacity, Math.min(1, delta * 9));
+      tree.mat.depthWrite = tree.mat.opacity > 0.92;
+    });
+  });
 
   return (
     <group>
@@ -35,6 +147,18 @@ export const Yard: React.FC = () => {
 
       <primitive object={yardMesh} />
       <primitive object={glowMesh} />
+
+      {/* Dynamic line-of-sight occluding trees */}
+      {trees.map((t) => (
+        <mesh
+          key={t.id}
+          geometry={t.geo}
+          material={t.mat}
+          castShadow
+          receiveShadow
+          customDepthMaterial={getEnvDepthMaterial()}
+        />
+      ))}
 
       <Grass />
       <BadmintonCourt />
@@ -81,19 +205,7 @@ function buildYard(): { yardMesh: THREE.Mesh; glowMesh: THREE.Mesh } {
   buildFence(b, glow);
   buildPath(b);
 
-  // Trees (positions match engine colliders)
-  addDeciduousTree(b, YARD_TREES.oak.x, YARD_TREES.oak.z, 1.2, {
-    leaves: [PALETTE.leafDeep, PALETTE.leaf, PALETTE.leafLight, PALETTE.leafSun],
-    canopyOffset: [-0.9, 0], canopyRadius: 1.35,
-  });
-  addDeciduousTree(b, YARD_TREES.maple.x, YARD_TREES.maple.z, 1.05, {
-    leaves: [PALETTE.autumn[3], PALETTE.autumn[0], PALETTE.autumn[1], PALETTE.autumn[2]],
-    canopyOffset: [0.6, 0], canopyRadius: 1.35,
-  });
-  addDeciduousTree(b, YARD_TREES.cherry.x, YARD_TREES.cherry.z, 1.0, {
-    leaves: [PALETTE.blossom[3], PALETTE.blossom[0], PALETTE.blossom[1], PALETTE.blossom[2]],
-    bark: '#5a3d2e', canopyRadius: 1.3, trunkHeight: 2.3,
-  });
+  // Note: Yard trees are now rendered dynamically in <Yard> with line-of-sight 10% opacity fading
 
   // Shrubs with berries / blossoms
   for (const s of SHRUBS) addShrub(b, s.x, s.z, s.color, 0.95);

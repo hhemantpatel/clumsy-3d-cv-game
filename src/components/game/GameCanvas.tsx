@@ -103,7 +103,7 @@ export const GameCanvas: React.FC = () => {
         <Scenery />
 
         {/* 6. 3D Yard & House Meshes */}
-        <Yard />
+        <Yard engine={engine} />
         <House engine={engine} />
         <Interactables />
         <Particles engine={engine} />
