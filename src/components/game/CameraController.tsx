@@ -185,9 +185,11 @@ export const CameraController: React.FC<CameraControllerProps> = ({ engine }) =>
       // Ideal camera angle directly behind the player's back
       const idealBehindTheta = rot - Math.PI;
 
-      // When game hasn't started yet, gently drift in cinematic establishing shot
+      // When game hasn't started yet, gently sway in a bounded cinematic establishing shot
       if (!hasStarted && !state.isDragging) {
-        state.userYawOffset += delta * 0.15;
+        // Smooth bounded sway (+/- 14°) keeping the yard, cottage, and character always in beautiful view (never rotating into walls)
+        const t = performance.now() * 0.001;
+        state.userYawOffset = Math.sin(t * 0.28) * 0.24;
       } else if (isWalking && speed > 0.15 && !state.isDragging) {
         // When walking and not actively dragging, gently realign manual offset back to behind the player
         state.userYawOffset = THREE.MathUtils.lerp(state.userYawOffset, 0, delta * 1.2);

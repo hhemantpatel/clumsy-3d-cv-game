@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Environment, ContactShadows, Sparkles } from '@react-three/drei';
+import { ContactShadows, Sparkles } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette, HueSaturation } from '@react-three/postprocessing';
 import { SUN_POSITION, PALETTE } from './env/palette';
 import * as THREE from 'three';
@@ -56,10 +56,7 @@ export const GameCanvas: React.FC = () => {
         <SkyDome />
         <CartoonSun />
 
-        {/* 1. Natural Garden Environment Lighting */}
-        <Environment preset="forest" environmentIntensity={0.22} />
-
-        {/* 2. Low-Angle Golden Sunset Sunlight & Shadows (Aligned with 3D CartoonSun) */}
+        {/* 1. Low-Angle Golden Sunset Sunlight & Shadows (Aligned with 3D CartoonSun) */}
         <directionalLight
           castShadow
           position={SUN_POSITION}
@@ -108,13 +105,15 @@ export const GameCanvas: React.FC = () => {
         <Scenery />
 
         {/* 6. 3D Yard & House Meshes */}
-        <Yard engine={engine} />
-        <House engine={engine} />
-        <Interactables />
-        <Particles engine={engine} />
-        <Butterflies />
-        <Character engine={engine} />
-        <CameraController engine={engine} />
+        <Suspense fallback={null}>
+          <Yard engine={engine} />
+          <House engine={engine} />
+          <Interactables />
+          <Particles engine={engine} />
+          <Butterflies />
+          <Character engine={engine} />
+          <CameraController engine={engine} />
+        </Suspense>
 
         {/* 7. Clean High-Performance Post-Processing (multisampling={0} avoids 4x MSAA bandwidth overhead) */}
         <EffectComposer multisampling={0}>
