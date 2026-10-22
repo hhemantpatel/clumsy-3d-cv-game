@@ -1,0 +1,33 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_physicsengine_free: (a: number, b: number) => void;
+export const physicsengine_get_active_interaction: (a: number) => [number, number];
+export const physicsengine_get_bobbing: (a: number) => number;
+export const physicsengine_get_footstep_trigger: (a: number) => number;
+export const physicsengine_get_particle_count: (a: number) => number;
+export const physicsengine_get_particles_data: (a: number) => [number, number];
+export const physicsengine_get_particles_len: (a: number) => number;
+export const physicsengine_get_particles_ptr: (a: number) => number;
+export const physicsengine_get_player_rotation: (a: number) => number;
+export const physicsengine_get_player_speed: (a: number) => number;
+export const physicsengine_get_player_x: (a: number) => number;
+export const physicsengine_get_player_y: (a: number) => number;
+export const physicsengine_get_player_z: (a: number) => number;
+export const physicsengine_get_skid_intensity: (a: number) => number;
+export const physicsengine_get_stumble_intensity: (a: number) => number;
+export const physicsengine_get_turn_velocity: (a: number) => number;
+export const physicsengine_get_walk_cycle: (a: number) => number;
+export const physicsengine_get_wobble_x: (a: number) => number;
+export const physicsengine_get_wobble_z: (a: number) => number;
+export const physicsengine_is_inside_house: (a: number) => number;
+export const physicsengine_is_running: (a: number) => number;
+export const physicsengine_is_walking: (a: number) => number;
+export const physicsengine_new: () => number;
+export const physicsengine_teleport_to_desk: (a: number) => void;
+export const physicsengine_teleport_to_start: (a: number) => void;
+export const physicsengine_turn: (a: number, b: number) => void;
+export const physicsengine_update: (a: number, b: number, c: number, d: number, e: number) => void;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;

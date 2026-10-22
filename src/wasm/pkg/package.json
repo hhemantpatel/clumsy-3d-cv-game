@@ -1,0 +1,19 @@
+{
+  "name": "game_engine_wasm",
+  "type": "module",
+  "collaborators": [
+    "Hemant"
+  ],
+  "description": "High-performance Rust WASM physics, particle simulation, and character kinematics engine",
+  "version": "0.1.0",
+  "files": [
+    "game_engine_wasm_bg.wasm",
+    "game_engine_wasm.js",
+    "game_engine_wasm.d.ts"
+  ],
+  "main": "game_engine_wasm.js",
+  "types": "game_engine_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
